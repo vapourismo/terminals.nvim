@@ -107,5 +107,8 @@ terminal. `setup()` has no return value.
 Only one managed float is shown at a time. Leaving a terminal float hides its
 window but preserves its buffer and process; toggling or cycling back restores
 the same persistent terminal. Wiping its buffer removes it from the registry.
+Intentional closes through `close()`, `:TermClose`, or the default `<D-w>`
+mapping are silent. A command that exits unsuccessfully still reports its exit
+status and keeps the terminal open for inspection; a successful exit closes it.
 
 See `:help terminals.nvim` for the full help file.

@@ -1,4 +1,5 @@
 local M = {
+  notifications = {},
   opened = {},
 }
 
@@ -69,10 +70,29 @@ end
 
 function Terminal:close()
   self.close_count = self.close_count + 1
+  if self.process_running then
+    self.process_running = false
+    vim.api.nvim_exec_autocmds("TermClose", {
+      buffer = self.buf,
+      data = { status = 129 },
+    })
+  end
   self:hide()
   if self:buf_valid() then
     vim.api.nvim_buf_delete(self.buf, { force = true })
   end
+  return self
+end
+
+function Terminal:exit(status)
+  if not self.process_running then
+    return self
+  end
+  self.process_running = false
+  vim.api.nvim_exec_autocmds("TermClose", {
+    buffer = self.buf,
+    data = { status = status },
+  })
   return self
 end
 
@@ -98,10 +118,18 @@ end
 function M.reset()
   for _, terminal in ipairs(M.opened) do
     if terminal:buf_valid() then
+      terminal.process_running = false
       terminal:close()
     end
   end
+  M.notifications = {}
   M.opened = {}
+end
+
+M.notify = {}
+
+function M.notify.error(message)
+  M.notifications[#M.notifications + 1] = message
 end
 
 M.terminal = {}
@@ -119,6 +147,7 @@ function M.terminal.open(cmd, opts)
     show_count = 0,
     focus_count = 0,
     close_count = 0,
+    process_running = true,
   }, Terminal)
   terminal.buf_group = vim.api.nvim_create_augroup("terminals_test_buf_" .. terminal.id, { clear = true })
   terminal:show()

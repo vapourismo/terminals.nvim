@@ -84,6 +84,55 @@ test("registers commands and forwards command forms", function()
   same(stub.opened[before + 3].opts.count, first_count + 2, "terminal counts should increase by creation")
 end)
 
+test("silences intentional closes from the API, command, and mapping", function()
+  local dir = directory("intentional-close")
+  cd(dir)
+  local notifications = #stub.notifications
+
+  local api_terminal = terminals.new("api")
+  same(api_terminal.opts.auto_close, false, "managed terminals should disable Snacks auto-close")
+  same(terminals.close(), api_terminal, "the API should return the intentionally closed terminal")
+  falsy(api_terminal:buf_valid(), "the API should destroy the terminal")
+
+  local command_terminal = terminals.new("command")
+  vim.cmd("TermClose")
+  falsy(command_terminal:buf_valid(), "TermClose should destroy the terminal")
+
+  local mapped_terminal = terminals.new("mapping")
+  mapped_terminal.opts.win.keys.term_close[2]()
+  falsy(mapped_terminal:buf_valid(), "the close mapping should destroy the terminal")
+
+  same(#stub.notifications, notifications, "intentional closes should not notify")
+end)
+
+test("handles spontaneous process exits by status", function()
+  local dir = directory("process-exit")
+  cd(dir)
+  local notifications = #stub.notifications
+
+  local failed = terminals.new("failure")
+  local failed_buffer = failed.buf
+  failed:exit(17)
+  same(#stub.notifications, notifications + 1, "a non-zero exit should notify exactly once")
+  same(
+    stub.notifications[#stub.notifications],
+    "Terminal exited with code 17.\nCheck for any errors.",
+    "a non-zero exit should retain the Snacks error message"
+  )
+  truthy(vim.api.nvim_buf_is_valid(failed_buffer), "a failed terminal should remain available for inspection")
+  same(failed.close_count, 0, "a failed terminal should not be closed automatically")
+  same(terminals.prev(), failed, "a failed terminal should remain in the registry")
+  same(terminals.close(), failed, "a failed terminal should still support intentional close")
+
+  local successful = terminals.new("success")
+  local successful_buffer = successful.buf
+  successful:exit(0)
+  falsy(vim.api.nvim_buf_is_valid(successful_buffer), "a successful terminal should close automatically")
+  same(successful.close_count, 1, "a successful terminal should close its Snacks object")
+  same(#stub.notifications, notifications + 1, "a zero exit should not notify")
+  same(terminals.prev(), nil, "a successful terminal should be removed from the registry")
+end)
+
 test("isolates directories and cycles in creation order", function()
   local dir_a = directory("a")
   local dir_b = directory("b")

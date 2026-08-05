@@ -14,6 +14,7 @@ end
 ---@field cwd string
 ---@field terminal snacks.terminal
 ---@field hiding boolean
+---@field intentional_close boolean
 ---@field removed boolean
 
 ---@class terminals.Group
@@ -241,6 +242,27 @@ end
 local function attach(entry)
   local terminal = entry.terminal
 
+  terminal:on("TermClose", function(_, event)
+    if entry.intentional_close then
+      return
+    end
+
+    local status = type(vim.v.event) == "table" and vim.v.event.status or nil
+    if status == nil and type(event.data) == "table" then
+      status = event.data.status
+    end
+    if status ~= 0 then
+      snacks().notify.error("Terminal exited with code " .. status .. ".\nCheck for any errors.")
+      return
+    end
+
+    remove_entry(entry)
+    without_winleave(function()
+      terminal:close()
+    end)
+    vim.cmd.checktime()
+  end, { buf = true })
+
   terminal:on("BufWipeout", function()
     remove_entry(entry)
   end, { buf = true })
@@ -284,6 +306,7 @@ function M.new(cmd)
   without_winleave(function()
     hide_visible()
     terminal = snacks().terminal.open(cmd, {
+      auto_close = false,
       cwd = cwd,
       count = next_count,
       win = window_options(),
@@ -301,6 +324,7 @@ function M.new(cmd)
     cwd = cwd,
     terminal = terminal,
     hiding = false,
+    intentional_close = false,
     removed = false,
   }
   group.terminals[#group.terminals + 1] = entry
@@ -335,6 +359,7 @@ function M.close()
     return nil
   end
 
+  entry.intentional_close = true
   remove_entry(entry)
   without_winleave(function()
     entry.terminal:close()

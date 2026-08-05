@@ -149,8 +149,12 @@ Leaving a managed float also hides only that window. Hiding retains its buffer
 and terminal process; selecting it again restores the same Snacks object.
 
 Wiping a terminal buffer removes the corresponding object from the registry.
-TermClose closes the object and terminates its process. No global mappings are
-installed. Managed terminal buffers use the configurable action mappings
-described in |terminals-setup| and inherit Snacks' default Escape handling.
+TermClose closes the object and terminates its process without reporting the
+expected process termination as an error. The Lua close() API and default
+<D-w> mapping are silent in the same way. A spontaneous non-zero process exit
+still reports an error and preserves the terminal for inspection; a zero exit
+closes and removes it. No global mappings are installed. Managed terminal
+buffers use the configurable action mappings described in |terminals-setup|
+and inherit Snacks' default Escape handling.
 
 vim:tw=78:ts=8:noet:ft=help:norl:
