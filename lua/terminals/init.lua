@@ -206,25 +206,6 @@ end
 local function enforced_terminal_keys()
   return {
     q = false,
-    term_normal = {
-      "<Esc>",
-      function()
-        vim.cmd("stopinsert")
-      end,
-      mode = "t",
-      desc = "Terminal normal mode",
-    },
-    term_escape = {
-      "<S-Esc>",
-      function()
-        local channel = vim.bo.channel
-        if channel > 0 then
-          vim.api.nvim_chan_send(channel, "\27")
-        end
-      end,
-      mode = "t",
-      desc = "Send escape",
-    },
   }
 end
 

@@ -81,9 +81,10 @@ require("terminals").setup({
 
 Unrelated custom `win.keys` entries are preserved. The manager applies its
 required window behavior last: `position = "float"`, the configured width,
-manual folding with folding disabled, terminal-mode `<Esc>` to leave Terminal
-mode, terminal-mode `<S-Esc>` to send a literal escape byte to the job, and no
-Normal-mode `q` mapping. Those three key invariants cannot be overridden.
+manual folding with folding disabled, and no Normal-mode `q` mapping. Escape
+handling uses the Snacks defaults; `terminals.nvim` does not supply Escape
+mappings. The enforced window behavior and disabled `q` mapping cannot be
+overridden.
 
 ## Commands
 

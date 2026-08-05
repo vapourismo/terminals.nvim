@@ -204,6 +204,8 @@ test("provides terminal-scoped action mappings whose callbacks manage terminals"
     same(mapping.mode, { "n", "t" }, name .. " modes")
     same(mapping.desc, values[2], name .. " description")
   end
+  same(keys.term_normal, nil, "Escape handling should use the Snacks default")
+  same(keys.term_escape, nil, "the plugin should not add another Escape mapping")
 
   keys.term_new[2]()
   local second = stub.opened[#stub.opened]
@@ -274,42 +276,8 @@ test("merges float options and enforces terminal invariants", function()
   same(win.keys.term_prev, custom_prev, "the previous mapping should be replaceable by name")
   same(win.keys.term_next, custom_next, "the next mapping should be replaceable by name")
   same(win.keys.q, false, "the Snacks q mapping should be disabled")
-
-  local normal = win.keys.term_normal
-  same(normal[1], "<Esc>", "single Escape should enter Normal mode")
-  same(normal.mode, "t", "Escape should be terminal-local")
-  same(normal.expr, nil, "Escape should not retain Snacks' double-Escape expression")
-
-  local escape = win.keys.term_escape
-  same(escape[1], "<S-Esc>", "Shift-Escape mapping")
-  same(escape.mode, "t", "Shift-Escape should be terminal-local")
-
-  local original_send = vim.api.nvim_chan_send
-  local sent = {}
-  local channel
-  local ok, err = xpcall(function()
-    vim.api.nvim_chan_send = function(target, data)
-      sent[#sent + 1] = { target, data }
-    end
-
-    escape[2]()
-    same(#sent, 0, "Shift-Escape should ignore a missing channel")
-
-    channel = vim.api.nvim_buf_call(terminal.buf, function()
-      return vim.fn.jobstart({ vim.o.shell, "-c", "cat" }, { term = true })
-    end)
-    truthy(channel > 0, "test terminal channel should start")
-    current_is(terminal)
-    escape[2]()
-    same(sent, { { channel, string.char(27) } }, "Shift-Escape should inject exactly one ESC byte")
-  end, debug.traceback)
-  vim.api.nvim_chan_send = original_send
-  if channel and channel > 0 then
-    pcall(vim.fn.jobstop, channel)
-  end
-  if not ok then
-    error(err)
-  end
+  same(win.keys.term_normal, false, "user-provided Escape options should survive")
+  same(win.keys.term_escape, { "E", "hide", mode = "n" }, "user-provided named key options should survive")
 
   terminals.setup({
     win = {
@@ -320,8 +288,6 @@ test("merges float options and enforces terminal invariants", function()
         term_prev = false,
         term_next = false,
         q = "close",
-        term_normal = false,
-        term_escape = false,
       },
     },
   })
@@ -332,8 +298,8 @@ test("merges float options and enforces terminal invariants", function()
   same(disabled.term_next, false, "the next mapping should be disableable by name")
   truthy(disabled.custom, "disabling defaults should preserve unrelated mappings")
   same(disabled.q, false, "q should remain enforced when action mappings are disabled")
-  same(disabled.term_normal[1], "<Esc>", "Escape should remain enforced when action mappings are disabled")
-  same(disabled.term_escape[1], "<S-Esc>", "Shift-Escape should remain enforced when action mappings are disabled")
+  same(disabled.term_normal, nil, "Escape handling should still use the Snacks default")
+  same(disabled.term_escape, nil, "no additional Escape mapping should be supplied")
 end)
 
 pcall(vim.api.nvim_set_current_win, main_win)
