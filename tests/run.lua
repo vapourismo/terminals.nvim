@@ -36,6 +36,7 @@ end
 
 local function test(name, callback)
   tests = tests + 1
+  pcall(vim.api.nvim_set_current_win, main_win)
   local ok, err = xpcall(callback, debug.traceback)
   if ok then
     print("ok " .. tests .. " - " .. name)
@@ -202,6 +203,7 @@ test("focuses adjacent terminals after successful exits without stealing backgro
   first:exit(0)
   current_is(newest)
 
+  vim.api.nvim_set_current_win(main_win)
   cd(directory("background-exit"))
   local fallback = terminals.new("fallback")
   local background = terminals.new("background")
@@ -307,10 +309,12 @@ test("isolates directories and cycles in creation order", function()
   same(terminals.next(), one, "next should wrap")
   current_is(one)
 
+  vim.api.nvim_set_current_win(main_win)
   cd(dir_b)
   local other = terminals.new("other")
   same(terminals.prev(), other, "a one-terminal group should cycle to itself")
 
+  vim.api.nvim_set_current_win(main_win)
   cd(dir_a)
   same(terminals.toggle(), one, "directory A should retain its active selection")
   current_is(one)
@@ -323,6 +327,87 @@ test("isolates directories and cycles in creation order", function()
   local created = terminals.toggle()
   same(created.cmd, nil, "toggle should create a shell terminal for an empty group")
   current_is(created)
+end)
+
+test("forwards an absolute cwd and uses it as the terminal group", function()
+  local editor_dir = directory("cwd-absolute-editor")
+  local target_dir = directory("cwd-absolute-target")
+  cd(editor_dir)
+
+  local requested = target_dir .. "/nested/../."
+  local terminal = terminals.new("absolute", { cwd = requested, title = "Absolute" })
+  same(terminal.opts.cwd, target_dir, "an absolute cwd should be normalized and forwarded to Snacks")
+  same(
+    eval_winbar(terminal, 20).str,
+    " Absolute " .. string.rep(" ", 10),
+    "cwd and title options should compose"
+  )
+
+  local opened = #stub.opened
+  local same_group = terminals.new("same-group", { cwd = target_dir })
+  same(#stub.opened, opened + 1, "creating another terminal should open exactly one Snacks terminal")
+  same(terminals.prev(), terminal, "the normalized absolute cwd should own the terminal group")
+  same(terminals.next(), same_group, "the equivalent absolute cwd should share the group")
+end)
+
+test("resolves relative cwd values against the applicable group", function()
+  local root = directory("cwd-relative")
+  local target = root .. "/target"
+  vim.fn.mkdir(target, "p")
+  cd(root)
+  local normalized_target = vim.fs.normalize(vim.fn.getcwd() .. "/target")
+
+  local outside_relative = terminals.new("outside-relative", { cwd = "target/." })
+  same(outside_relative.opts.cwd, normalized_target, "outside a terminal, relative cwd should use Neovim's cwd")
+
+  vim.api.nvim_set_current_win(main_win)
+  vim.wait(100, function()
+    return not outside_relative:win_valid()
+  end)
+  local absolute = terminals.new("absolute", { cwd = normalized_target .. "/." })
+  same(absolute.opts.cwd, normalized_target, "the equivalent absolute cwd should normalize identically")
+
+  local focused_relative = terminals.new("focused-relative", { cwd = "../target/." })
+  same(focused_relative.opts.cwd, normalized_target, "inside a terminal, relative cwd should use its group")
+  same(terminals.prev(), absolute, "equivalent relative and absolute paths should share a group")
+  same(terminals.prev(), outside_relative, "the original relative path should belong to the same group")
+end)
+
+test("inherits an overridden cwd for new terminals and the default mapping", function()
+  local editor_dir = directory("cwd-inherit-editor")
+  local target_dir = directory("cwd-inherit-target")
+  cd(editor_dir)
+  terminals.setup()
+
+  local first = terminals.new("first", { cwd = target_dir })
+  local second = terminals.new()
+  same(second.opts.cwd, target_dir, "new() should inherit the focused terminal's group")
+
+  first.opts.win.keys.term_new[2]()
+  local mapped = stub.opened[#stub.opened]
+  same(mapped.opts.cwd, target_dir, "the default new-terminal mapping should inherit the focused group")
+  same(terminals.prev(), second, "inherited terminals should remain in creation order")
+  same(terminals.prev(), first, "the overridden terminal should share the inherited group")
+end)
+
+test("uses a focused overridden group for cycling and toggling", function()
+  local editor_dir = directory("cwd-operations-editor")
+  local target_dir = directory("cwd-operations-target")
+  cd(editor_dir)
+
+  local editor_terminal = terminals.new("editor")
+  local first = terminals.new("first", { cwd = target_dir })
+  local second = terminals.new("second")
+
+  same(terminals.prev(), first, "previous should use the focused terminal's overridden group")
+  same(terminals.next(), second, "next should use the focused terminal's overridden group")
+  same(terminals.toggle(), second, "toggle should hide the focused overridden group's selection")
+  falsy(second:win_valid(), "toggle should hide the overridden terminal")
+
+  local opened = #stub.opened
+  same(terminals.toggle(), editor_terminal, "outside a terminal, toggle should use Neovim's cwd")
+  same(#stub.opened, opened, "the editor cwd group should be reused outside a terminal")
+  current_is(editor_terminal)
 end)
 
 test("renders command-derived winbar titles and ignores buffer titles", function()
@@ -356,6 +441,7 @@ test("renders command-derived winbar titles and ignores buffer titles", function
   rendered = eval_winbar(two, 20)
   same(rendered.str, " one   two " .. string.rep(" ", 9), "buffer title changes should not affect command labels")
 
+  vim.api.nvim_set_current_win(main_win)
   cd(directory("winbar-literal-command"))
   local literal = terminals.new("100% %#Error#\nready\7")
   rendered = eval_winbar(literal, 48)
@@ -427,6 +513,7 @@ test("uses persistent creation-time titles ahead of command titles", function()
     { group = "NormalFloat", start = 30 },
   }, "statusline metacharacters in an explicit title should not change highlights")
 
+  vim.api.nvim_set_current_win(main_win)
   cd(directory("winbar-empty-explicit-title"))
   local empty = terminals.new("empty", { title = "" })
   set_title(empty, "ignored")
@@ -458,12 +545,14 @@ test("updates winbar selection while preserving directory isolation", function()
     { group = "NormalFloat", start = 14 },
   }, "cycling should move the active highlight")
 
+  vim.api.nvim_set_current_win(main_win)
   cd(dir_b)
   local other = terminals.new("other")
   set_title(other, "other")
   rendered = eval_winbar(other, 24)
   same(rendered.str, " other " .. string.rep(" ", 17), "another directory should have an isolated winbar")
 
+  vim.api.nvim_set_current_win(main_win)
   cd(dir_a)
   same(terminals.toggle(), alpha, "the original directory selection should be restored")
   rendered = eval_winbar(alpha, 24)

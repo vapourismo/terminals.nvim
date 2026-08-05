@@ -100,18 +100,18 @@ COMMANDS                                                *terminals-commands*
 
                                                        *:TermPrev* *TermPrev*
 :TermPrev
-    Circularly select and focus the previous terminal for the current
-    directory. Do nothing when that directory has no terminals.
+    Circularly select and focus the previous terminal for the applicable
+    directory group. Do nothing when that group has no terminals.
 
                                                        *:TermNext* *TermNext*
 :TermNext
-    Circularly select and focus the next terminal for the current directory.
-    Do nothing when that directory has no terminals.
+    Circularly select and focus the next terminal for the applicable directory
+    group. Do nothing when that group has no terminals.
 
                                                    *:TermToggle* *TermToggle*
 :TermToggle
-    Hide or show the selected terminal. Create a shell terminal when the
-    current directory has no terminals.
+    Hide or show the selected terminal for the applicable directory group.
+    Create a shell terminal when that group has no terminals.
 
 ==============================================================================
 LUA API                                                    *terminals-api*
@@ -122,11 +122,23 @@ setup({opts})                                     *terminals.setup()*
 
 new({cmd}, {opts})                                   *terminals.new()*
     Create, select, and focus a terminal. {cmd} may be a shell string, an argv
-    list, or nil. {opts} is optional; {opts.title} sets a persistent winbar
-    title. Returns the new Snacks terminal object. For example: >lua
+    list, or nil. {opts} is optional. {opts.title} sets a persistent winbar
+    title, and {opts.cwd} sets the process working directory and terminal
+    group. Returns the new Snacks terminal object. For example: >lua
 
-        require("terminals").new("npm test", { title = "Tests" })
+        require("terminals").new("npm test", {
+          cwd = "../app",
+          title = "Tests",
+        })
 <
+
+    {opts.cwd} may be absolute or relative. Absolute paths are normalized
+    without resolving symbolic links. Relative paths use the focused managed
+    terminal's group as their base, or Neovim's current directory outside a
+    managed terminal. Without {opts.cwd}, new() uses that same base directory.
+    The resolved absolute directory is passed to Snacks as `cwd` and used as
+    the terminal-group key. :TermNew has no custom-directory syntax; use this
+    Lua API instead.
 
 close()                                            *terminals.close()*
     Destroy the focused managed terminal and return its Snacks object. Returns
@@ -134,20 +146,29 @@ close()                                            *terminals.close()*
 
 prev()                                              *terminals.prev()*
 next()                                              *terminals.next()*
-    Circularly select and focus a terminal for the current directory. Return
-    its Snacks object, or nil when the directory has no terminals.
+    Circularly select and focus a terminal for the applicable directory group.
+    Return its Snacks object, or nil when the group has no terminals.
 
 toggle()                                          *terminals.toggle()*
     Hide or show the selected terminal and return its Snacks object. If the
-    group is empty, create and return a new shell terminal.
+    applicable group is empty, create and return a new shell terminal.
 
 ==============================================================================
 BEHAVIOR                                               *terminals-behavior*
 
-The current directory is vim.fn.getcwd() at invocation, normalized without
-resolving symbolic links. Each normalized directory owns an ordered terminal
-group and an active selection. The registry itself is global, so all tab pages
-use the same groups.
+Each terminal's resolved working directory owns an ordered group and an active
+selection. Directories are normalized without resolving symbolic links. While
+a managed terminal is focused, new(), prev(), next(), and toggle() operate on
+that terminal's group. Outside a managed terminal they use vim.fn.getcwd() at
+invocation. The registry itself is global, so all tab pages use the same
+groups.
+
+An explicit {opts.cwd} changes both the new process directory and its group.
+Relative values are resolved from the focused terminal's group, or from
+vim.fn.getcwd() outside a managed terminal. Absolute values are normalized
+directly. Without {opts.cwd}, a new terminal inherits the focused terminal's
+group or uses vim.fn.getcwd() outside one. Equivalent normalized absolute
+paths therefore share a group, including creation order and active selection.
 
 Before a terminal is focused, any other visible managed terminal is hidden.
 Leaving a managed float also hides only that window. Hiding retains its buffer

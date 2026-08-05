@@ -12,6 +12,7 @@ end
 
 ---@class terminals.NewOptions
 ---@field title? string
+---@field cwd? string
 
 ---@class terminals.Entry
 ---@field cwd string
@@ -45,12 +46,25 @@ local winbar_expression = "%!v:lua.require'terminals'._winbar()"
 -- lifecycle handlers must remain in a plugin-owned group.
 local lifecycle_group = vim.api.nvim_create_augroup("terminals.nvim", { clear = true })
 
-local function normalize_cwd()
-  local cwd = vim.fn.getcwd()
+---@param path string
+---@return string
+local function normalize_path(path)
   if vim.fs and vim.fs.normalize then
-    return vim.fs.normalize(cwd)
+    return vim.fs.normalize(path)
   end
-  return vim.fn.fnamemodify(cwd, ":p")
+  return vim.fn.fnamemodify(path, ":p")
+end
+
+---@return string
+local function neovim_cwd()
+  return normalize_path(vim.fn.getcwd())
+end
+
+---@param path string
+---@return boolean
+local function path_is_absolute(path)
+  return path:sub(1, 1) == "/"
+    or (vim.fn.has("win32") == 1 and path:match("^%a:[/\\]") ~= nil)
 end
 
 ---@param terminal snacks.terminal
@@ -194,6 +208,41 @@ end
 local function entry_focused(entry)
   return entry.terminal.win == vim.api.nvim_get_current_win()
     and entry.terminal.buf == vim.api.nvim_get_current_buf()
+end
+
+---@return terminals.Entry?
+local function focused_entry()
+  prune_all()
+  local current_win = vim.api.nvim_get_current_win()
+  local current_buf = vim.api.nvim_get_current_buf()
+  for _, group in pairs(registry) do
+    for _, entry in ipairs(group.terminals) do
+      if entry.terminal.win == current_win and entry.terminal.buf == current_buf then
+        return entry
+      end
+    end
+  end
+end
+
+---@return string
+local function applicable_cwd()
+  local entry = focused_entry()
+  return entry and entry.cwd or neovim_cwd()
+end
+
+---@param cwd? string
+---@return string
+local function resolve_cwd(cwd)
+  local base = applicable_cwd()
+  if cwd == nil then
+    return base
+  end
+
+  local normalized = normalize_path(cwd)
+  if path_is_absolute(normalized) then
+    return normalized
+  end
+  return normalize_path(base .. "/" .. normalized)
 end
 
 ---@param entry terminals.Entry?
@@ -449,12 +498,12 @@ function M.setup(opts)
   config = vim.tbl_deep_extend("force", {}, defaults, opts or {})
 end
 
----Create, select, and focus a terminal for the current directory.
+---Create, select, and focus a terminal for its effective directory.
 ---@param cmd? string|string[]
 ---@param opts? terminals.NewOptions
 ---@return snacks.terminal
 function M.new(cmd, opts)
-  local cwd = normalize_cwd()
+  local cwd = resolve_cwd(opts and opts.cwd)
   next_count = next_count + 1
 
   local terminal
@@ -496,19 +545,6 @@ function M.new(cmd, opts)
   return terminal
 end
 
-local function focused_entry()
-  prune_all()
-  local current_win = vim.api.nvim_get_current_win()
-  local current_buf = vim.api.nvim_get_current_buf()
-  for _, group in pairs(registry) do
-    for _, entry in ipairs(group.terminals) do
-      if entry.terminal.win == current_win and entry.terminal.buf == current_buf then
-        return entry
-      end
-    end
-  end
-end
-
 ---Destroy the focused managed terminal.
 ---@return snacks.terminal?
 function M.close()
@@ -531,7 +567,7 @@ end
 ---@param offset integer
 ---@return snacks.terminal?
 local function cycle(offset)
-  local group = prune(normalize_cwd())
+  local group = prune(applicable_cwd())
   if not group then
     return nil
   end
@@ -540,22 +576,22 @@ local function cycle(offset)
   return focus(group.terminals[group.active])
 end
 
----Select and focus the previous terminal for the current directory.
+---Select and focus the previous terminal for the applicable directory group.
 ---@return snacks.terminal?
 function M.prev()
   return cycle(-1)
 end
 
----Select and focus the next terminal for the current directory.
+---Select and focus the next terminal for the applicable directory group.
 ---@return snacks.terminal?
 function M.next()
   return cycle(1)
 end
 
----Hide or show the selected terminal for the current directory.
+---Hide or show the selected terminal for the applicable directory group.
 ---@return snacks.terminal
 function M.toggle()
-  local group = prune(normalize_cwd())
+  local group = prune(applicable_cwd())
   if not group then
     return M.new()
   end

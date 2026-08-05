@@ -6,9 +6,11 @@ persistent window objects provided by
 It keeps terminals ordered by creation time, remembers the selected terminal,
 and shares that state across tabs.
 
-Terminals are grouped by the effective Neovim working directory returned by
-`getcwd()`. The directory is normalized without resolving symbolic links, so
-changing Neovim's directory switches to a separate terminal group.
+Terminals are grouped by the absolute working directory used to spawn them.
+Directories are normalized without resolving symbolic links. Outside a managed
+terminal, the default group is Neovim's working directory returned by
+`getcwd()`; inside one, actions stay with the focused terminal's group even if
+Neovim's working directory differs.
 
 ## Requirements
 
@@ -93,19 +95,32 @@ user-provided `win.wo.winbar` is replaced.
 | --- | --- | --- |
 | `:TermNew [command...]` | `require("terminals").new(cmd?, opts?)` | Create, select, and focus a terminal. Lua accepts a shell string or argv list. |
 | `:TermClose` | `.close()` | Destroy the focused managed terminal; do nothing outside one. |
-| `:TermPrev` | `.prev()` | Circularly select the previous terminal for the current directory. |
-| `:TermNext` | `.next()` | Circularly select the next terminal for the current directory. |
-| `:TermToggle` | `.toggle()` | Hide/show the selected terminal, creating a shell terminal for an empty group. |
+| `:TermPrev` | `.prev()` | Circularly select the previous terminal for the applicable directory group. |
+| `:TermNext` | `.next()` | Circularly select the next terminal for the applicable directory group. |
+| `:TermToggle` | `.toggle()` | Hide/show the selected terminal for the applicable group, creating a shell terminal if it is empty. |
 
 `TermNew` forwards its command-line arguments as one shell string and provides
 shell-command completion. Passing no command creates a terminal using the shell
 configured by Snacks.
 
-The Lua API also accepts a persistent winbar title at creation time:
+The Lua API accepts a persistent winbar title and a terminal working directory
+at creation time:
 
 ```lua
-require("terminals").new("npm test", { title = "Tests" })
+require("terminals").new("npm test", {
+  cwd = "../app",
+  title = "Tests",
+})
 ```
+
+`opts.cwd` may be absolute or relative. Absolute paths are normalized without
+resolving symbolic links. A relative path is resolved against the focused
+managed terminal's group, or against Neovim's `getcwd()` when invoked outside a
+managed terminal. With no `opts.cwd`, `new()` uses that same base directory.
+The resolved absolute path is passed to Snacks as the process `cwd` and owns the
+terminal group, so equivalent normalized paths share creation order and active
+selection. `:TermNew` retains its existing command-only syntax; use the Lua API
+to select a custom directory.
 
 The Lua functions return the selected Snacks terminal object. `close()`,
 `prev()`, and `next()` return `nil` when there is no applicable managed
@@ -113,7 +128,10 @@ terminal. `setup()` has no return value.
 
 Only one managed float is shown at a time. Leaving a terminal float hides its
 window but preserves its buffer and process; toggling or cycling back restores
-the same persistent terminal. Wiping its buffer removes it from the registry.
+the same persistent terminal. While a managed terminal is focused, `new()`,
+`prev()`, `next()`, and `toggle()` operate on its directory group. Outside a
+managed terminal they use Neovim's current directory. Wiping a terminal buffer
+removes it from the registry.
 Every managed float has a left-aligned winbar listing its directory group's
 terminals in creation order. A non-`nil` `opts.title`, including an empty
 string, is authoritative for the terminal's lifetime. Otherwise, the winbar
