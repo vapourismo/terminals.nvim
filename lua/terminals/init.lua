@@ -166,7 +166,44 @@ local function focus(entry)
   return entry.terminal
 end
 
-local function terminal_keys()
+local function terminal_action_keys()
+  return {
+    term_new = {
+      "<D-n>",
+      function()
+        require("terminals").new()
+      end,
+      mode = { "n", "t" },
+      desc = "New terminal",
+    },
+    term_close = {
+      "<D-w>",
+      function()
+        require("terminals").close()
+      end,
+      mode = { "n", "t" },
+      desc = "Close terminal",
+    },
+    term_prev = {
+      "<D-{>",
+      function()
+        require("terminals").prev()
+      end,
+      mode = { "n", "t" },
+      desc = "Previous terminal",
+    },
+    term_next = {
+      "<D-}>",
+      function()
+        require("terminals").next()
+      end,
+      mode = { "n", "t" },
+      desc = "Next terminal",
+    },
+  }
+end
+
+local function enforced_terminal_keys()
   return {
     q = false,
     term_normal = {
@@ -192,14 +229,20 @@ local function terminal_keys()
 end
 
 local function window_options()
-  return vim.tbl_deep_extend("force", {}, config.win or {}, {
+  local user_win = config.win or {}
+  return vim.tbl_deep_extend("force", {}, user_win, {
     position = "float",
     width = config.width,
     wo = {
       foldenable = false,
       foldmethod = "manual",
     },
-    keys = terminal_keys(),
+    keys = vim.tbl_deep_extend(
+      "force",
+      terminal_action_keys(),
+      user_win.keys or {},
+      enforced_terminal_keys()
+    ),
   })
 end
 

@@ -48,11 +48,42 @@ require("terminals").setup({
 float options. Configuration affects terminals created after `setup()`;
 existing terminal objects keep their original options.
 
-User window options are merged first. The manager then enforces the behavior it
-depends on: `position = "float"`, the configured width, manual folding with
-folding disabled, terminal-mode `<Esc>` to leave Terminal mode,
-terminal-mode `<S-Esc>` to send a literal escape byte to the job, and no
-Normal-mode `q` mapping.
+Every newly created managed terminal has these buffer-local mappings in both
+Normal and Terminal modes:
+
+| `win.keys` name | Key | Action |
+| --- | --- | --- |
+| `term_new` | `<D-n>` | Create a terminal with `require("terminals").new()`. |
+| `term_close` | `<D-w>` | Close the focused managed terminal. |
+| `term_prev` | `<D-{>` | Select the previous managed terminal. |
+| `term_next` | `<D-}>` | Select the next managed terminal. |
+
+The named defaults are merged before user-provided `win.keys`. Replace an
+entry by its stable name, or set it to `false` to disable it:
+
+```lua
+require("terminals").setup({
+  win = {
+    keys = {
+      term_new = {
+        "<leader>tn",
+        function()
+          require("terminals").new()
+        end,
+        mode = { "n", "t" },
+        desc = "New terminal",
+      },
+      term_close = false,
+    },
+  },
+})
+```
+
+Unrelated custom `win.keys` entries are preserved. The manager applies its
+required window behavior last: `position = "float"`, the configured width,
+manual folding with folding disabled, terminal-mode `<Esc>` to leave Terminal
+mode, terminal-mode `<S-Esc>` to send a literal escape byte to the job, and no
+Normal-mode `q` mapping. Those three key invariants cannot be overridden.
 
 ## Commands
 

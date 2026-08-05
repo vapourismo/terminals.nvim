@@ -183,6 +183,43 @@ test("hides on WinLeave without terminating and restores later", function()
   current_is(terminal)
 end)
 
+test("provides terminal-scoped action mappings whose callbacks manage terminals", function()
+  local dir = directory("default-mappings")
+  cd(dir)
+  terminals.setup()
+
+  local first = terminals.new("first")
+  local keys = first.opts.win.keys
+  local expected = {
+    term_new = { "<D-n>", "New terminal" },
+    term_close = { "<D-w>", "Close terminal" },
+    term_prev = { "<D-{>", "Previous terminal" },
+    term_next = { "<D-}>", "Next terminal" },
+  }
+  for name, values in pairs(expected) do
+    local mapping = keys[name]
+    truthy(mapping, name .. " should be configured through the terminal window")
+    same(mapping[1], values[1], name .. " key sequence")
+    same(type(mapping[2]), "function", name .. " callback")
+    same(mapping.mode, { "n", "t" }, name .. " modes")
+    same(mapping.desc, values[2], name .. " description")
+  end
+
+  keys.term_new[2]()
+  local second = stub.opened[#stub.opened]
+  same(second.cmd, nil, "the new-terminal mapping should create a shell terminal")
+  current_is(second)
+
+  keys.term_prev[2]()
+  current_is(first)
+  keys.term_next[2]()
+  current_is(second)
+
+  keys.term_close[2]()
+  same(second.close_count, 1, "the close mapping should destroy the focused terminal")
+  falsy(second:buf_valid(), "the close mapping should wipe the terminal buffer")
+end)
+
 test("merges float options and enforces terminal invariants", function()
   local dir = directory("options")
   cd(dir)
@@ -191,6 +228,10 @@ test("merges float options and enforces terminal invariants", function()
   same(existing.opts.win.width, 220, "default width")
 
   local on_win = function() end
+  local custom_new = { "N", function() end, mode = "n", desc = "Custom new" }
+  local custom_close = { "C", function() end, mode = "t", desc = "Custom close" }
+  local custom_prev = { "P", function() end, mode = { "n", "t" }, desc = "Custom previous" }
+  local custom_next = { "X", function() end, mode = { "n", "t" }, desc = "Custom next" }
   terminals.setup({
     width = 91,
     win = {
@@ -206,6 +247,12 @@ test("merges float options and enforces terminal invariants", function()
       keys = {
         q = "close",
         custom = { "x", "hide", mode = "n" },
+        term_new = custom_new,
+        term_close = custom_close,
+        term_prev = custom_prev,
+        term_next = custom_next,
+        term_normal = false,
+        term_escape = { "E", "hide", mode = "n" },
       },
     },
   })
@@ -222,6 +269,10 @@ test("merges float options and enforces terminal invariants", function()
   same(win.wo.foldenable, false, "folding should be disabled")
   same(win.wo.foldmethod, "manual", "manual fold method should be enforced")
   truthy(win.keys.custom, "custom key mappings should survive")
+  same(win.keys.term_new, custom_new, "the new-terminal mapping should be replaceable by name")
+  same(win.keys.term_close, custom_close, "the close mapping should be replaceable by name")
+  same(win.keys.term_prev, custom_prev, "the previous mapping should be replaceable by name")
+  same(win.keys.term_next, custom_next, "the next mapping should be replaceable by name")
   same(win.keys.q, false, "the Snacks q mapping should be disabled")
 
   local normal = win.keys.term_normal
@@ -259,6 +310,30 @@ test("merges float options and enforces terminal invariants", function()
   if not ok then
     error(err)
   end
+
+  terminals.setup({
+    win = {
+      keys = {
+        custom = { "z", "hide", mode = "n" },
+        term_new = false,
+        term_close = false,
+        term_prev = false,
+        term_next = false,
+        q = "close",
+        term_normal = false,
+        term_escape = false,
+      },
+    },
+  })
+  local disabled = terminals.new("disabled").opts.win.keys
+  same(disabled.term_new, false, "the new-terminal mapping should be disableable by name")
+  same(disabled.term_close, false, "the close mapping should be disableable by name")
+  same(disabled.term_prev, false, "the previous mapping should be disableable by name")
+  same(disabled.term_next, false, "the next mapping should be disableable by name")
+  truthy(disabled.custom, "disabling defaults should preserve unrelated mappings")
+  same(disabled.q, false, "q should remain enforced when action mappings are disabled")
+  same(disabled.term_normal[1], "<Esc>", "Escape should remain enforced when action mappings are disabled")
+  same(disabled.term_escape[1], "<S-Esc>", "Shift-Escape should remain enforced when action mappings are disabled")
 end)
 
 pcall(vim.api.nvim_set_current_win, main_win)

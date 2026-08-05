@@ -48,10 +48,40 @@ Setup is optional. The defaults are: >lua
 `win` accepts additional snacks.win float options. Options affect terminals
 created after setup; existing terminal objects are unchanged.
 
-User window options are merged first. The following invariants are then
-enforced: floating position, configured width, disabled folding with manual
-fold method, terminal mappings for <Esc> and <S-Esc>, and no Normal-mode q
-mapping.
+New managed terminals have these buffer-local mappings in both Normal and
+Terminal modes:
+
+    NAME          KEY       ACTION
+    term_new      <D-n>     require("terminals").new()
+    term_close    <D-w>     require("terminals").close()
+    term_prev     <D-{>     require("terminals").prev()
+    term_next     <D-}>     require("terminals").next()
+
+These stable names are snacks.win `keys` entries. Defaults are merged before
+user-provided `win.keys`, so each one may be replaced or set to false without
+installing a global mapping. For example: >lua
+
+    require("terminals").setup({
+      win = {
+        keys = {
+          term_new = {
+            "<leader>tn",
+            function()
+              require("terminals").new()
+            end,
+            mode = { "n", "t" },
+            desc = "New terminal",
+          },
+          term_close = false,
+        },
+      },
+    })
+<
+
+Unrelated custom `win.keys` entries are preserved. The following invariants
+are applied last and cannot be overridden: floating position, configured
+width, disabled folding with manual fold method, terminal mappings for <Esc>
+and <S-Esc>, and no Normal-mode q mapping.
 
 ==============================================================================
 COMMANDS                                                *terminals-commands*
@@ -119,7 +149,8 @@ and terminal process; selecting it again restores the same Snacks object.
 
 Wiping a terminal buffer removes the corresponding object from the registry.
 TermClose closes the object and terminates its process. No global mappings are
-installed. Managed terminal buffers use these mappings:
+installed. Managed terminal buffers use these enforced mappings in addition
+to the configurable action mappings described in |terminals-setup|:
 
     <Esc>       leave Terminal mode
     <S-Esc>     send a literal ESC byte to a live terminal channel
