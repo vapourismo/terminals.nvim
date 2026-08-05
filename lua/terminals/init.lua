@@ -10,9 +10,13 @@ end
 ---@field width? integer
 ---@field win? table<string, any>
 
+---@class terminals.NewOptions
+---@field title? string
+
 ---@class terminals.Entry
 ---@field cwd string
 ---@field terminal snacks.terminal
+---@field title? string
 ---@field hiding boolean
 ---@field intentional_close boolean
 ---@field removed boolean
@@ -289,8 +293,12 @@ function M._winbar()
 
   local parts = {}
   for index, entry in ipairs(group.terminals) do
-    local ok, title = pcall(vim.api.nvim_buf_get_var, entry.terminal.buf, "term_title")
-    title = escape_winbar_title(ok and title or "")
+    local title = entry.title
+    if title == nil then
+      local ok, dynamic_title = pcall(vim.api.nvim_buf_get_var, entry.terminal.buf, "term_title")
+      title = ok and dynamic_title or ""
+    end
+    title = escape_winbar_title(title)
     if index > 1 then
       parts[#parts + 1] = "%#NormalFloat# "
     end
@@ -432,8 +440,9 @@ end
 
 ---Create, select, and focus a terminal for the current directory.
 ---@param cmd? string|string[]
+---@param opts? terminals.NewOptions
 ---@return snacks.terminal
-function M.new(cmd)
+function M.new(cmd, opts)
   local cwd = normalize_cwd()
   next_count = next_count + 1
 
@@ -458,6 +467,7 @@ function M.new(cmd)
   local entry = {
     cwd = cwd,
     terminal = terminal,
+    title = opts and opts.title,
     hiding = false,
     intentional_close = false,
     removed = false,

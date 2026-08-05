@@ -91,7 +91,7 @@ user-provided `win.wo.winbar` is replaced.
 
 | Command | Lua | Behavior |
 | --- | --- | --- |
-| `:TermNew [command...]` | `require("terminals").new(cmd?)` | Create, select, and focus a terminal. Lua accepts a shell string or argv list. |
+| `:TermNew [command...]` | `require("terminals").new(cmd?, opts?)` | Create, select, and focus a terminal. Lua accepts a shell string or argv list. |
 | `:TermClose` | `.close()` | Destroy the focused managed terminal; do nothing outside one. |
 | `:TermPrev` | `.prev()` | Circularly select the previous terminal for the current directory. |
 | `:TermNext` | `.next()` | Circularly select the next terminal for the current directory. |
@@ -101,6 +101,12 @@ user-provided `win.wo.winbar` is replaced.
 shell-command completion. Passing no command creates a terminal using the shell
 configured by Snacks.
 
+The Lua API also accepts a persistent winbar title at creation time:
+
+```lua
+require("terminals").new("npm test", { title = "Tests" })
+```
+
 The Lua functions return the selected Snacks terminal object. `close()`,
 `prev()`, and `next()` return `nil` when there is no applicable managed
 terminal. `setup()` has no return value.
@@ -109,11 +115,13 @@ Only one managed float is shown at a time. Leaving a terminal float hides its
 window but preserves its buffer and process; toggling or cycling back restores
 the same persistent terminal. Wiping its buffer removes it from the registry.
 Every managed float has a left-aligned winbar listing its directory group's
-terminals in creation order. Titles are read from each buffer's `b:term_title`
-on redraw. The selected title uses `WinBarNameActive`; other titles use
-`WinBarName`. Each title has one highlighted padding space on both sides, while
-the space between entries and the remaining winbar use `NormalFloat`. The
-plugin consumes these highlight groups without redefining them.
+terminals in creation order. A non-`nil` `opts.title`, including an empty
+string, is authoritative for the terminal's lifetime. Without an explicit
+title, the winbar reads the buffer's live `b:term_title` on every redraw. The
+selected title uses `WinBarNameActive`; other titles use `WinBarName`. Each
+title has one highlighted padding space on both sides, while the space between
+entries and the remaining winbar use `NormalFloat`. The plugin consumes these
+highlight groups without redefining them.
 
 Intentional closes through `close()`, `:TermClose`, or the default `<D-w>`
 mapping are silent. A command that exits unsuccessfully still reports its exit

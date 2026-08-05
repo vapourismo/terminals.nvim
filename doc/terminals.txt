@@ -120,9 +120,13 @@ setup({opts})                                     *terminals.setup()*
     Configure terminals created in the future. {opts.width} is an integer and
     {opts.win} is a table of Snacks float options. Returns nothing.
 
-new({cmd})                                           *terminals.new()*
+new({cmd}, {opts})                                   *terminals.new()*
     Create, select, and focus a terminal. {cmd} may be a shell string, an argv
-    list, or nil. Returns the new Snacks terminal object.
+    list, or nil. {opts} is optional; {opts.title} sets a persistent winbar
+    title. Returns the new Snacks terminal object. For example: >lua
+
+        require("terminals").new("npm test", { title = "Tests" })
+<
 
 close()                                            *terminals.close()*
     Destroy the focused managed terminal and return its Snacks object. Returns
@@ -150,11 +154,13 @@ Leaving a managed float also hides only that window. Hiding retains its buffer
 and terminal process; selecting it again restores the same Snacks object.
 
 Every managed float has a left-aligned winbar listing its directory group's
-terminals in creation order. Each title is read from the buffer-local
-`b:term_title` variable on redraw. The selected title uses WinBarNameActive;
-other titles use WinBarName. Each title has one highlighted padding space on
-both sides. Separators and all remaining winbar space use NormalFloat. These
-existing highlight groups are consumed without being redefined.
+terminals in creation order. A non-nil {opts.title}, including an empty string,
+is authoritative for that terminal's lifetime. Otherwise, its title is read
+from the buffer-local `b:term_title` variable on every redraw. The selected
+title uses WinBarNameActive; other titles use WinBarName. Each title has one
+highlighted padding space on both sides. Separators and all remaining winbar
+space use NormalFloat. These existing highlight groups are consumed without
+being redefined.
 
 Wiping a terminal buffer removes the corresponding object from the registry.
 TermClose closes the object and terminates its process without reporting the

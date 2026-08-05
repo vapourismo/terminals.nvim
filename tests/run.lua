@@ -367,6 +367,45 @@ test("renders padded terminal titles and refreshes dynamic title text", function
   }, "statusline metacharacters in a title should not change highlights")
 end)
 
+test("uses persistent creation-time titles ahead of dynamic titles", function()
+  local dir = directory("winbar-explicit-title")
+  cd(dir)
+  terminals.setup()
+
+  local named = terminals.new("named", { title = "Named" })
+  set_title(named, "dynamic")
+  local rendered = eval_winbar(named, 20)
+  same(rendered.str, " Named " .. string.rep(" ", 13), "an explicit title should be displayed")
+
+  set_title(named, "changed")
+  rendered = eval_winbar(named, 20)
+  same(rendered.str, " Named " .. string.rep(" ", 13), "an explicit title should remain authoritative")
+
+  local literal = terminals.new("literal", { title = "100% %#Error#\nready\7" })
+  rendered = eval_winbar(literal, 48)
+  same(
+    rendered.str,
+    " Named   100% %#Error# ready  " .. string.rep(" ", 18),
+    "explicit titles should render literally with control characters sanitized"
+  )
+  same(highlight_spans(rendered), {
+    { group = "WinBarName", start = 0 },
+    { group = "NormalFloat", start = 7 },
+    { group = "WinBarNameActive", start = 8 },
+    { group = "NormalFloat", start = 30 },
+  }, "statusline metacharacters in an explicit title should not change highlights")
+
+  cd(directory("winbar-empty-explicit-title"))
+  local empty = terminals.new("empty", { title = "" })
+  set_title(empty, "ignored")
+  rendered = eval_winbar(empty, 8)
+  same(rendered.str, string.rep(" ", 8), "an empty explicit title should not fall back to the dynamic title")
+  same(highlight_spans(rendered), {
+    { group = "WinBarNameActive", start = 0 },
+    { group = "NormalFloat", start = 2 },
+  }, "an empty explicit title should retain its padded active region")
+end)
+
 test("updates winbar selection while preserving directory isolation", function()
   local dir_a = directory("winbar-a")
   local dir_b = directory("winbar-b")
