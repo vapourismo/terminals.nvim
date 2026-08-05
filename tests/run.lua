@@ -206,7 +206,14 @@ test("focuses adjacent terminals after successful exits without stealing backgro
   local fallback = terminals.new("fallback")
   local background = terminals.new("background")
   local focused = terminals.new("focused")
+  local background_buffer = background.buf
+  falsy(background:win_valid(), "the background terminal should be hidden before it exits")
   background:exit(0)
+  falsy(vim.api.nvim_buf_is_valid(background_buffer), "a hidden successful terminal should wipe its buffer")
+  same(background.close_count, 1, "a hidden successful terminal should close its Snacks object")
+  current_is(focused)
+  same(terminals.prev(), fallback, "a hidden successful terminal should be removed from cycling")
+  same(terminals.next(), focused, "cycling should skip the exited background terminal")
   current_is(focused)
 
   vim.api.nvim_set_current_win(main_win)
@@ -217,6 +224,29 @@ test("focuses adjacent terminals after successful exits without stealing backgro
   same(vim.api.nvim_get_current_win(), main_win, "a hidden terminal exit should not steal editor focus")
   same(terminals.toggle(), fallback, "a background exit should retain the adjacent selection")
   current_is(fallback)
+end)
+
+test("retains hidden failed exits for inspection without stealing focus", function()
+  cd(directory("background-failed-exit"))
+  local notifications = #stub.notifications
+  local failed = terminals.new("failed")
+  local failed_buffer = failed.buf
+  local focused = terminals.new("focused")
+  falsy(failed:win_valid(), "the failed terminal should be hidden before it exits")
+
+  failed:exit(17)
+
+  same(#stub.notifications, notifications + 1, "a hidden non-zero exit should notify exactly once")
+  same(
+    stub.notifications[#stub.notifications],
+    "Terminal exited with code 17.\nCheck for any errors.",
+    "a hidden non-zero exit should report its status"
+  )
+  truthy(vim.api.nvim_buf_is_valid(failed_buffer), "a hidden failed terminal should remain inspectable")
+  same(failed.close_count, 0, "a hidden failed terminal should remain open")
+  current_is(focused)
+  same(terminals.prev(), failed, "a hidden failed terminal should remain selectable")
+  current_is(failed)
 end)
 
 test("focuses adjacent terminals after buffer wipes without stealing background focus", function()

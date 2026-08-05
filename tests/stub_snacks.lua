@@ -16,19 +16,29 @@ function Terminal:win_valid()
   return self.win and vim.api.nvim_win_is_valid(self.win) or false
 end
 
-function Terminal:_attach_win_events()
-  if self.win_group then
-    pcall(vim.api.nvim_del_augroup_by_id, self.win_group)
+function Terminal:_create_autocmd(handler)
+  local opts = handler.opts
+  local autocmd_opts = {
+    group = self.augroup,
+    callback = function(event)
+      return handler.callback(self, event)
+    end,
+  }
+  if opts.win then
+    autocmd_opts.pattern = tostring(self.win)
+  elseif opts.buf then
+    autocmd_opts.buffer = self.buf
   end
-  self.win_group = vim.api.nvim_create_augroup("terminals_test_win_" .. self.id, { clear = true })
-  for _, handler in ipairs(self.win_events) do
-    vim.api.nvim_create_autocmd(handler.event, {
-      group = self.win_group,
-      pattern = tostring(self.win),
-      callback = function(event)
-        return handler.callback(self, event)
-      end,
-    })
+  vim.api.nvim_create_autocmd(handler.event, autocmd_opts)
+end
+
+function Terminal:_attach_events()
+  if self.augroup then
+    pcall(vim.api.nvim_del_augroup_by_id, self.augroup)
+  end
+  self.augroup = vim.api.nvim_create_augroup("terminals_test_snacks_" .. self.id, { clear = true })
+  for _, handler in ipairs(self.events) do
+    self:_create_autocmd(handler)
   end
 end
 
@@ -49,7 +59,7 @@ function Terminal:show()
   for option, value in pairs(self.opts.win.wo or {}) do
     vim.api.nvim_set_option_value(option, value, { win = self.win })
   end
-  self:_attach_win_events()
+  self:_attach_events()
   return self
 end
 
@@ -59,6 +69,10 @@ function Terminal:hide()
   self.win = nil
   if win and vim.api.nvim_win_is_valid(win) then
     vim.api.nvim_win_close(win, true)
+  end
+  if self.augroup then
+    pcall(vim.api.nvim_del_augroup_by_id, self.augroup)
+    self.augroup = nil
   end
   return self
 end
@@ -101,21 +115,11 @@ end
 
 function Terminal:on(event, callback, opts)
   opts = opts or {}
-  if opts.win then
-    self.win_events[#self.win_events + 1] = { event = event, callback = callback }
-    if self:win_valid() then
-      self:_attach_win_events()
-    end
-    return
+  local handler = { event = event, callback = callback, opts = opts }
+  self.events[#self.events + 1] = handler
+  if self:win_valid() then
+    self:_create_autocmd(handler)
   end
-
-  vim.api.nvim_create_autocmd(event, {
-    group = self.buf_group,
-    buffer = opts.buf and self.buf or nil,
-    callback = function(event_args)
-      return callback(self, event_args)
-    end,
-  })
 end
 
 function M.reset()
@@ -145,14 +149,13 @@ function M.terminal.open(cmd, opts)
     opts = opts,
     buf = vim.api.nvim_create_buf(false, true),
     win = nil,
-    win_events = {},
+    events = {},
     hide_count = 0,
     show_count = 0,
     focus_count = 0,
     close_count = 0,
     process_running = true,
   }, Terminal)
-  terminal.buf_group = vim.api.nvim_create_augroup("terminals_test_buf_" .. terminal.id, { clear = true })
   terminal:show()
   M.opened[#M.opened + 1] = terminal
   return terminal

@@ -36,6 +36,9 @@ local registry = {}
 local next_count = 0
 local suppress_winleave = 0
 local winbar_expression = "%!v:lua.require'terminals'._winbar()"
+-- Snacks deletes its window augroup whenever a float is hidden, so terminal
+-- lifecycle handlers must remain in a plugin-owned group.
+local lifecycle_group = vim.api.nvim_create_augroup("terminals.nvim", { clear = true })
 
 local function normalize_cwd()
   local cwd = vim.fn.getcwd()
@@ -332,77 +335,93 @@ end
 local function attach(entry)
   local terminal = entry.terminal
 
-  terminal:on("TermClose", function(_, event)
-    if entry.intentional_close then
-      return
-    end
+  vim.api.nvim_create_autocmd("TermClose", {
+    group = lifecycle_group,
+    buffer = terminal.buf,
+    callback = function(event)
+      if entry.intentional_close then
+        return
+      end
 
-    local status = type(vim.v.event) == "table" and vim.v.event.status or nil
-    if status == nil and type(event.data) == "table" then
-      status = event.data.status
-    end
-    if status ~= 0 then
-      snacks().notify.error("Terminal exited with code " .. status .. ".\nCheck for any errors.")
-      return
-    end
+      local status = type(vim.v.event) == "table" and vim.v.event.status or nil
+      if status == nil and type(event.data) == "table" then
+        status = event.data.status
+      end
+      if status ~= 0 then
+        snacks().notify.error("Terminal exited with code " .. status .. ".\nCheck for any errors.")
+        return
+      end
 
-    local was_focused = entry_focused(entry)
-    local fallback, removed = remove_entry(entry, was_focused)
-    without_winleave(function()
-      terminal:close()
-    end)
-    if removed and was_focused then
-      focus_fallback(fallback)
-    end
-    vim.cmd.checktime()
-  end, { buf = true })
-
-  terminal:on("BufWinLeave", function()
-    -- BufWipeout runs after Neovim invalidates the terminal window, so retain
-    -- whether its buffer was current while it is still leaving that window.
-    entry.focused_before_wipe = suppress_winleave == 0
-      and not entry.hiding
-      and not entry.removed
-      and terminal.buf == vim.api.nvim_get_current_buf()
-
-    -- A later wipe of an already hidden buffer must not reuse this state.
-    vim.schedule(function()
-      entry.focused_before_wipe = false
-    end)
-  end, { buf = true })
-
-  terminal:on("BufWipeout", function()
-    local was_focused = entry.focused_before_wipe or entry_focused(entry)
-    entry.focused_before_wipe = false
-    local fallback, removed = remove_entry(entry, was_focused)
-    if removed and was_focused then
-      -- Window changes are unsafe until the wipe autocmd has completed.
-      vim.schedule(function()
-        focus_fallback(fallback)
+      local was_focused = entry_focused(entry)
+      local fallback, removed = remove_entry(entry, was_focused)
+      without_winleave(function()
+        terminal:close()
       end)
-    end
-  end, { buf = true })
+      if removed and was_focused then
+        focus_fallback(fallback)
+      end
+      vim.cmd.checktime()
+    end,
+  })
 
-  terminal:on("WinLeave", function(_, event)
-    if suppress_winleave > 0 or entry.hiding or entry.removed then
-      return
-    end
+  vim.api.nvim_create_autocmd("BufWinLeave", {
+    group = lifecycle_group,
+    buffer = terminal.buf,
+    callback = function()
+      -- BufWipeout runs after Neovim invalidates the terminal window, so retain
+      -- whether its buffer was current while it is still leaving that window.
+      entry.focused_before_wipe = suppress_winleave == 0
+        and not entry.hiding
+        and not entry.removed
+        and terminal.buf == vim.api.nvim_get_current_buf()
 
-    if
-      event.buf ~= terminal.buf
-      or terminal.win ~= vim.api.nvim_get_current_win()
-      or not win_valid(terminal)
-    then
-      return
-    end
+      -- A later wipe of an already hidden buffer must not reuse this state.
+      vim.schedule(function()
+        entry.focused_before_wipe = false
+      end)
+    end,
+  })
 
-    entry.hiding = true
-    local ok, err = pcall(terminal.hide, terminal)
-    entry.hiding = false
-    if not ok then
-      error(err, 0)
-    end
-  end, { buf = true })
+  vim.api.nvim_create_autocmd("BufWipeout", {
+    group = lifecycle_group,
+    buffer = terminal.buf,
+    callback = function()
+      local was_focused = entry.focused_before_wipe or entry_focused(entry)
+      entry.focused_before_wipe = false
+      local fallback, removed = remove_entry(entry, was_focused)
+      if removed and was_focused then
+        -- Window changes are unsafe until the wipe autocmd has completed.
+        vim.schedule(function()
+          focus_fallback(fallback)
+        end)
+      end
+    end,
+  })
+
+  vim.api.nvim_create_autocmd("WinLeave", {
+    group = lifecycle_group,
+    buffer = terminal.buf,
+    callback = function(event)
+      if suppress_winleave > 0 or entry.hiding or entry.removed then
+        return
+      end
+
+      if
+        event.buf ~= terminal.buf
+        or terminal.win ~= vim.api.nvim_get_current_win()
+        or not win_valid(terminal)
+      then
+        return
+      end
+
+      entry.hiding = true
+      local ok, err = pcall(terminal.hide, terminal)
+      entry.hiding = false
+      if not ok then
+        error(err, 0)
+      end
+    end,
+  })
 end
 
 ---Configure terminals created after this call.
