@@ -1,0 +1,127 @@
+*terminals.nvim.txt*        Floating terminal manager using Snacks Terminal
+
+==============================================================================
+CONTENTS                                                *terminals-contents*
+
+1. Introduction                                      |terminals-introduction|
+2. Requirements                                      |terminals-requirements|
+3. Setup                                                    |terminals-setup|
+4. Commands                                              |terminals-commands|
+5. Lua API                                                  |terminals-api|
+6. Behavior                                             |terminals-behavior|
+
+==============================================================================
+INTRODUCTION                                        *terminals-introduction*
+
+terminals.nvim manages the persistent window objects returned by Snacks
+Terminal. Terminals are ordered by creation time, selected circularly, and
+shared across tab pages.
+
+==============================================================================
+REQUIREMENTS                                        *terminals-requirements*
+
+Snacks is a required dependency:
+
+    https://github.com/folke/snacks.nvim
+
+For lazy.nvim (replace OWNER with the repository owner): >lua
+
+    {
+      "OWNER/terminals.nvim",
+      dependencies = { "folke/snacks.nvim" },
+      opts = {},
+    }
+<
+
+==============================================================================
+SETUP                                                      *terminals-setup*
+
+Setup is optional. The defaults are: >lua
+
+    require("terminals").setup({
+      width = 220,
+      win = {},
+    })
+<
+
+`width` is the float width in characters. Snacks clamps it when necessary.
+`win` accepts additional snacks.win float options. Options affect terminals
+created after setup; existing terminal objects are unchanged.
+
+User window options are merged first. The following invariants are then
+enforced: floating position, configured width, disabled folding with manual
+fold method, terminal mappings for <Esc> and <S-Esc>, and no Normal-mode q
+mapping.
+
+==============================================================================
+COMMANDS                                                *terminals-commands*
+
+                                                       *:TermNew* *TermNew*
+:TermNew [command...]
+    Create, select, and focus a new terminal. Arguments are forwarded as one
+    shell string. With no arguments, use the shell configured by Snacks.
+
+                                                   *:TermClose* *TermClose*
+:TermClose
+    Destroy the focused managed terminal. Do nothing when the current window
+    is not a managed terminal.
+
+                                                       *:TermPrev* *TermPrev*
+:TermPrev
+    Circularly select and focus the previous terminal for the current
+    directory. Do nothing when that directory has no terminals.
+
+                                                       *:TermNext* *TermNext*
+:TermNext
+    Circularly select and focus the next terminal for the current directory.
+    Do nothing when that directory has no terminals.
+
+                                                   *:TermToggle* *TermToggle*
+:TermToggle
+    Hide or show the selected terminal. Create a shell terminal when the
+    current directory has no terminals.
+
+==============================================================================
+LUA API                                                    *terminals-api*
+
+setup({opts})                                     *terminals.setup()*
+    Configure terminals created in the future. {opts.width} is an integer and
+    {opts.win} is a table of Snacks float options. Returns nothing.
+
+new({cmd})                                           *terminals.new()*
+    Create, select, and focus a terminal. {cmd} may be a shell string, an argv
+    list, or nil. Returns the new Snacks terminal object.
+
+close()                                            *terminals.close()*
+    Destroy the focused managed terminal and return its Snacks object. Returns
+    nil outside a managed terminal.
+
+prev()                                              *terminals.prev()*
+next()                                              *terminals.next()*
+    Circularly select and focus a terminal for the current directory. Return
+    its Snacks object, or nil when the directory has no terminals.
+
+toggle()                                          *terminals.toggle()*
+    Hide or show the selected terminal and return its Snacks object. If the
+    group is empty, create and return a new shell terminal.
+
+==============================================================================
+BEHAVIOR                                               *terminals-behavior*
+
+The current directory is vim.fn.getcwd() at invocation, normalized without
+resolving symbolic links. Each normalized directory owns an ordered terminal
+group and an active selection. The registry itself is global, so all tab pages
+use the same groups.
+
+Before a terminal is focused, any other visible managed terminal is hidden.
+Leaving a managed float also hides only that window. Hiding retains its buffer
+and terminal process; selecting it again restores the same Snacks object.
+
+Wiping a terminal buffer removes the corresponding object from the registry.
+TermClose closes the object and terminates its process. No global mappings are
+installed. Managed terminal buffers use these mappings:
+
+    <Esc>       leave Terminal mode
+    <S-Esc>     send a literal ESC byte to a live terminal channel
+
+vim:tw=78:ts=8:noet:ft=help:norl:
