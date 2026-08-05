@@ -110,5 +110,10 @@ the same persistent terminal. Wiping its buffer removes it from the registry.
 Intentional closes through `close()`, `:TermClose`, or the default `<D-w>`
 mapping are silent. A command that exits unsuccessfully still reports its exit
 status and keeps the terminal open for inspection; a successful exit closes it.
+When a focused terminal is closed, exits successfully, or is wiped, its
+immediate predecessor in creation order is focused. If it has no predecessor,
+the immediate successor is focused instead. Removing a background terminal
+does not change focus, and removing the group's only terminal leaves focus in
+Neovim's remaining window without creating a replacement.
 
 See `:help terminals.nvim` for the full help file.

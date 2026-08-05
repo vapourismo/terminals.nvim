@@ -60,6 +60,14 @@ local function current_is(terminal)
   same(vim.api.nvim_get_current_buf(), terminal.buf, "terminal buffer should be focused")
 end
 
+local function eventually_current_is(terminal)
+  truthy(vim.wait(100, function()
+    return vim.api.nvim_get_current_win() == terminal.win
+      and vim.api.nvim_get_current_buf() == terminal.buf
+  end), "terminal should eventually be focused")
+  current_is(terminal)
+end
+
 test("registers commands and forwards command forms", function()
   vim.cmd("runtime plugin/terminals.lua")
   local commands = vim.api.nvim_get_commands({ builtin = false })
@@ -131,6 +139,105 @@ test("handles spontaneous process exits by status", function()
   same(successful.close_count, 1, "a successful terminal should close its Snacks object")
   same(#stub.notifications, notifications + 1, "a zero exit should not notify")
   same(terminals.prev(), nil, "a successful terminal should be removed from the registry")
+end)
+
+test("focuses adjacent terminals after intentional closes", function()
+  local dir = directory("intentional-focus-handoff")
+  cd(dir)
+
+  local first = terminals.new("first")
+  local middle = terminals.new("middle")
+  local newest = terminals.new("newest")
+  same(terminals.prev(), middle, "the middle terminal should be selectable")
+  same(terminals.close(), middle, "closing the middle terminal should return it")
+  current_is(first)
+
+  same(terminals.close(), first, "closing the first terminal should return it")
+  current_is(newest)
+
+  local opened = #stub.opened
+  same(terminals.close(), newest, "closing the only terminal should return it")
+  same(vim.api.nvim_get_current_win(), main_win, "closing the group should leave focus in Neovim")
+  same(#stub.opened, opened, "closing the group should not create a replacement")
+
+  cd(directory("intentional-newest-handoff"))
+  local older = terminals.new("older")
+  local newer = terminals.new("newer")
+  same(terminals.close(), newer, "closing the newest terminal should return it")
+  current_is(older)
+end)
+
+test("focuses adjacent terminals after successful exits without stealing background focus", function()
+  local dir = directory("exit-focus-handoff")
+  cd(dir)
+
+  local first = terminals.new("first")
+  local middle = terminals.new("middle")
+  local newest = terminals.new("newest")
+  same(terminals.prev(), middle, "the middle terminal should be selectable")
+  middle:exit(0)
+  current_is(first)
+
+  first:exit(0)
+  current_is(newest)
+
+  cd(directory("background-exit"))
+  local fallback = terminals.new("fallback")
+  local background = terminals.new("background")
+  local focused = terminals.new("focused")
+  background:exit(0)
+  current_is(focused)
+
+  vim.api.nvim_set_current_win(main_win)
+  vim.wait(20, function()
+    return false
+  end)
+  focused:exit(0)
+  same(vim.api.nvim_get_current_win(), main_win, "a hidden terminal exit should not steal editor focus")
+  same(terminals.toggle(), fallback, "a background exit should retain the adjacent selection")
+  current_is(fallback)
+end)
+
+test("focuses adjacent terminals after buffer wipes without stealing background focus", function()
+  local dir = directory("wipe-focus-handoff")
+  cd(dir)
+
+  local first = terminals.new("first")
+  local middle = terminals.new("middle")
+  local newest = terminals.new("newest")
+  same(terminals.prev(), middle, "the middle terminal should be selectable")
+  vim.api.nvim_buf_delete(middle.buf, { force = true })
+  eventually_current_is(first)
+
+  vim.api.nvim_buf_delete(first.buf, { force = true })
+  eventually_current_is(newest)
+
+  local opened = #stub.opened
+  vim.api.nvim_buf_delete(newest.buf, { force = true })
+  same(vim.api.nvim_get_current_win(), main_win, "wiping the group should leave focus in Neovim")
+  same(#stub.opened, opened, "wiping the group should not create a replacement")
+
+  cd(directory("background-wipe"))
+  local fallback = terminals.new("fallback")
+  local background = terminals.new("background")
+  local focused = terminals.new("focused")
+  vim.api.nvim_buf_delete(background.buf, { force = true })
+  vim.wait(20, function()
+    return false
+  end)
+  current_is(focused)
+
+  vim.api.nvim_set_current_win(main_win)
+  vim.wait(20, function()
+    return false
+  end)
+  vim.api.nvim_buf_delete(focused.buf, { force = true })
+  vim.wait(20, function()
+    return false
+  end)
+  same(vim.api.nvim_get_current_win(), main_win, "a hidden buffer wipe should not steal editor focus")
+  same(terminals.toggle(), fallback, "a background wipe should retain the adjacent selection")
+  current_is(fallback)
 end)
 
 test("isolates directories and cycles in creation order", function()

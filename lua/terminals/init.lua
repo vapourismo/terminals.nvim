@@ -16,6 +16,7 @@ end
 ---@field hiding boolean
 ---@field intentional_close boolean
 ---@field removed boolean
+---@field focused_before_wipe boolean
 
 ---@class terminals.Group
 ---@field terminals terminals.Entry[]
@@ -100,35 +101,47 @@ local function prune_all()
 end
 
 ---@param entry terminals.Entry
-local function remove_entry(entry)
+---@param select_fallback? boolean
+---@return terminals.Entry?, boolean
+local function remove_entry(entry, select_fallback)
   if entry.removed then
-    return
+    return nil, false
   end
   entry.removed = true
 
   local group = registry[entry.cwd]
   if not group then
-    return
+    return nil, false
   end
 
+  local selected = group.terminals[group.active]
   local removed_index
   for index, candidate in ipairs(group.terminals) do
     if candidate == entry then
       removed_index = index
-      table.remove(group.terminals, index)
       break
     end
   end
 
+  if not removed_index then
+    return nil, false
+  end
+
+  local fallback = group.terminals[removed_index - 1] or group.terminals[removed_index + 1]
+  table.remove(group.terminals, removed_index)
+
   if #group.terminals == 0 then
     registry[entry.cwd] = nil
-  elseif removed_index then
+  elseif select_fallback or selected == entry then
+    group.active = removed_index > 1 and removed_index - 1 or 1
+  else
     if removed_index < group.active then
       group.active = group.active - 1
     elseif group.active > #group.terminals then
       group.active = #group.terminals
     end
   end
+  return fallback, true
 end
 
 ---@generic T
@@ -165,6 +178,20 @@ local function focus(entry)
     entry.terminal:focus()
   end)
   return entry.terminal
+end
+
+---@param entry terminals.Entry
+---@return boolean
+local function entry_focused(entry)
+  return entry.terminal.win == vim.api.nvim_get_current_win()
+    and entry.terminal.buf == vim.api.nvim_get_current_buf()
+end
+
+---@param entry terminals.Entry?
+local function focus_fallback(entry)
+  if entry and not entry.removed and buf_valid(entry.terminal) then
+    focus(entry)
+  end
 end
 
 local function terminal_action_keys()
@@ -256,15 +283,41 @@ local function attach(entry)
       return
     end
 
-    remove_entry(entry)
+    local was_focused = entry_focused(entry)
+    local fallback, removed = remove_entry(entry, was_focused)
     without_winleave(function()
       terminal:close()
     end)
+    if removed and was_focused then
+      focus_fallback(fallback)
+    end
     vim.cmd.checktime()
   end, { buf = true })
 
+  terminal:on("BufWinLeave", function()
+    -- BufWipeout runs after Neovim invalidates the terminal window, so retain
+    -- whether its buffer was current while it is still leaving that window.
+    entry.focused_before_wipe = suppress_winleave == 0
+      and not entry.hiding
+      and not entry.removed
+      and terminal.buf == vim.api.nvim_get_current_buf()
+
+    -- A later wipe of an already hidden buffer must not reuse this state.
+    vim.schedule(function()
+      entry.focused_before_wipe = false
+    end)
+  end, { buf = true })
+
   terminal:on("BufWipeout", function()
-    remove_entry(entry)
+    local was_focused = entry.focused_before_wipe or entry_focused(entry)
+    entry.focused_before_wipe = false
+    local fallback, removed = remove_entry(entry, was_focused)
+    if removed and was_focused then
+      -- Window changes are unsafe until the wipe autocmd has completed.
+      vim.schedule(function()
+        focus_fallback(fallback)
+      end)
+    end
   end, { buf = true })
 
   terminal:on("WinLeave", function(_, event)
@@ -326,6 +379,7 @@ function M.new(cmd)
     hiding = false,
     intentional_close = false,
     removed = false,
+    focused_before_wipe = false,
   }
   group.terminals[#group.terminals + 1] = entry
   group.active = #group.terminals
@@ -360,10 +414,13 @@ function M.close()
   end
 
   entry.intentional_close = true
-  remove_entry(entry)
+  local fallback, removed = remove_entry(entry, true)
   without_winleave(function()
     entry.terminal:close()
   end)
+  if removed then
+    focus_fallback(fallback)
+  end
   return entry.terminal
 end
 

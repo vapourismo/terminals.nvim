@@ -153,8 +153,16 @@ TermClose closes the object and terminates its process without reporting the
 expected process termination as an error. The Lua close() API and default
 <D-w> mapping are silent in the same way. A spontaneous non-zero process exit
 still reports an error and preserves the terminal for inspection; a zero exit
-closes and removes it. No global mappings are installed. Managed terminal
-buffers use the configurable action mappings described in |terminals-setup|
-and inherit Snacks' default Escape handling.
+closes and removes it.
+
+When the removed terminal was focused, its immediate predecessor in creation
+order is selected and focused. If there is no predecessor, its immediate
+successor is used. Removing a background terminal does not change focus. If
+the group becomes empty, focus remains in Neovim's remaining window and no
+replacement terminal is created.
+
+No global mappings are installed. Managed terminal buffers use the
+configurable action mappings described in |terminals-setup| and inherit
+Snacks' default Escape handling.
 
 vim:tw=78:ts=8:noet:ft=help:norl:
