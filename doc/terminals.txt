@@ -155,12 +155,14 @@ and terminal process; selecting it again restores the same Snacks object.
 
 Every managed float has a left-aligned winbar listing its directory group's
 terminals in creation order. A non-nil {opts.title}, including an empty string,
-is authoritative for that terminal's lifetime. Otherwise, its title is read
-from the buffer-local `b:term_title` variable on every redraw. The selected
-title uses WinBarNameActive; other titles use WinBarName. Each title has one
-highlighted padding space on both sides. Separators and all remaining winbar
-space use NormalFloat. These existing highlight groups are consumed without
-being redefined.
+is authoritative for that terminal's lifetime. Otherwise, the title comes from
+the terminal's creation command. Shell strings are displayed directly, argv
+lists are joined with single spaces without shell quoting, and a terminal
+created without a command is labeled `terminal`. The selected title uses
+WinBarNameActive; other titles use WinBarName. Each title has one highlighted
+padding space on both sides. Separators and all remaining winbar space use
+NormalFloat. These existing highlight groups are consumed without being
+redefined.
 
 Wiping a terminal buffer removes the corresponding object from the registry.
 TermClose closes the object and terminates its process without reporting the

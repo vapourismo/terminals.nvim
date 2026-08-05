@@ -325,7 +325,7 @@ test("isolates directories and cycles in creation order", function()
   current_is(created)
 end)
 
-test("renders padded terminal titles and refreshes dynamic title text", function()
+test("renders command-derived winbar titles and ignores buffer titles", function()
   local dir = directory("winbar-render")
   cd(dir)
   terminals.setup()
@@ -333,16 +333,16 @@ test("renders padded terminal titles and refreshes dynamic title text", function
   vim.api.nvim_set_hl(0, "WinBarNameActive", { fg = "#ffffff" })
 
   local one = terminals.new("one")
-  set_title(one, "one")
+  set_title(one, "ignored")
   local rendered = eval_winbar(one, 20)
-  same(rendered.str, " one " .. string.rep(" ", 15), "one terminal should remain left aligned")
+  same(rendered.str, " one " .. string.rep(" ", 15), "a string command should remain left aligned")
   same(highlight_spans(rendered), {
     { group = "WinBarNameActive", start = 0 },
     { group = "NormalFloat", start = 5 },
   }, "a single entry and its trailing fill should use the requested highlights")
 
   local two = terminals.new("two")
-  set_title(two, "two")
+  set_title(two, "also ignored")
   rendered = eval_winbar(two, 20)
   same(rendered.str, " one   two " .. string.rep(" ", 9), "entries should retain creation order and exact spacing")
   same(highlight_spans(rendered), {
@@ -352,22 +352,54 @@ test("renders padded terminal titles and refreshes dynamic title text", function
     { group = "NormalFloat", start = 11 },
   }, "inactive, separator, active, and trailing regions should be highlighted independently")
 
-  set_title(two, "100% %#Error#\nready\7")
-  rendered = eval_winbar(two, 48)
+  set_title(two, "changed")
+  rendered = eval_winbar(two, 20)
+  same(rendered.str, " one   two " .. string.rep(" ", 9), "buffer title changes should not affect command labels")
+
+  cd(directory("winbar-literal-command"))
+  local literal = terminals.new("100% %#Error#\nready\7")
+  rendered = eval_winbar(literal, 48)
   same(
     rendered.str,
-    " one   100% %#Error# ready  " .. string.rep(" ", 20),
-    "title changes should redraw literally with control characters sanitized"
+    " 100% %#Error# ready  " .. string.rep(" ", 26),
+    "command text should render literally with control characters sanitized"
+  )
+  same(highlight_spans(rendered), {
+    { group = "WinBarNameActive", start = 0 },
+    { group = "NormalFloat", start = 22 },
+  }, "statusline metacharacters in a command should not change highlights")
+end)
+
+test("renders argv and shell terminal winbar titles", function()
+  cd(directory("winbar-command-forms"))
+  terminals.setup()
+
+  local argv = terminals.new({ "printf", "%s", "hello world" })
+  set_title(argv, "ignored")
+  local rendered = eval_winbar(argv, 32)
+  same(rendered.str, " printf %s hello world " .. string.rep(" ", 9), "argv should be joined with single spaces")
+  same(highlight_spans(rendered), {
+    { group = "WinBarNameActive", start = 0 },
+    { group = "NormalFloat", start = 23 },
+  }, "an argv title should retain active and trailing highlights")
+
+  local shell = terminals.new()
+  set_title(shell, "ignored")
+  rendered = eval_winbar(shell, 44)
+  same(
+    rendered.str,
+    " printf %s hello world   terminal " .. string.rep(" ", 10),
+    "a nil command should use the shell terminal placeholder"
   )
   same(highlight_spans(rendered), {
     { group = "WinBarName", start = 0 },
-    { group = "NormalFloat", start = 5 },
-    { group = "WinBarNameActive", start = 6 },
-    { group = "NormalFloat", start = 28 },
-  }, "statusline metacharacters in a title should not change highlights")
+    { group = "NormalFloat", start = 23 },
+    { group = "WinBarNameActive", start = 24 },
+    { group = "NormalFloat", start = 34 },
+  }, "argv and shell terminal entries should preserve independent highlights")
 end)
 
-test("uses persistent creation-time titles ahead of dynamic titles", function()
+test("uses persistent creation-time titles ahead of command titles", function()
   local dir = directory("winbar-explicit-title")
   cd(dir)
   terminals.setup()
@@ -399,7 +431,7 @@ test("uses persistent creation-time titles ahead of dynamic titles", function()
   local empty = terminals.new("empty", { title = "" })
   set_title(empty, "ignored")
   rendered = eval_winbar(empty, 8)
-  same(rendered.str, string.rep(" ", 8), "an empty explicit title should not fall back to the dynamic title")
+  same(rendered.str, string.rep(" ", 8), "an empty explicit title should not fall back to the command title")
   same(highlight_spans(rendered), {
     { group = "WinBarNameActive", start = 0 },
     { group = "NormalFloat", start = 2 },

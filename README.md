@@ -116,12 +116,14 @@ window but preserves its buffer and process; toggling or cycling back restores
 the same persistent terminal. Wiping its buffer removes it from the registry.
 Every managed float has a left-aligned winbar listing its directory group's
 terminals in creation order. A non-`nil` `opts.title`, including an empty
-string, is authoritative for the terminal's lifetime. Without an explicit
-title, the winbar reads the buffer's live `b:term_title` on every redraw. The
-selected title uses `WinBarNameActive`; other titles use `WinBarName`. Each
-title has one highlighted padding space on both sides, while the space between
-entries and the remaining winbar use `NormalFloat`. The plugin consumes these
-highlight groups without redefining them.
+string, is authoritative for the terminal's lifetime. Otherwise, the winbar
+uses the terminal's creation command: shell strings are displayed directly,
+argv lists are joined with single spaces without shell quoting, and a terminal
+created without a command is labeled `terminal`. The selected title uses
+`WinBarNameActive`; other titles use `WinBarName`. Each title has one
+highlighted padding space on both sides, while the space between entries and
+the remaining winbar use `NormalFloat`. The plugin consumes these highlight
+groups without redefining them.
 
 Intentional closes through `close()`, `:TermClose`, or the default `<D-w>`
 mapping are silent. A command that exits unsuccessfully still reports its exit

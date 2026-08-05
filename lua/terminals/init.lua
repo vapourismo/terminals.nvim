@@ -15,6 +15,7 @@ end
 
 ---@class terminals.Entry
 ---@field cwd string
+---@field cmd? string|string[]
 ---@field terminal snacks.terminal
 ---@field title? string
 ---@field hiding boolean
@@ -254,6 +255,21 @@ local function escape_winbar_title(title)
   return (title:gsub("%c", " "):gsub("%%", "%%%%"))
 end
 
+---@param entry terminals.Entry
+---@return string
+local function winbar_title(entry)
+  if entry.title ~= nil then
+    return entry.title
+  end
+  if type(entry.cmd) == "string" then
+    return entry.cmd
+  end
+  if type(entry.cmd) == "table" then
+    return table.concat(entry.cmd, " ")
+  end
+  return "terminal"
+end
+
 ---@param win integer
 ---@return string?
 local function cwd_for_win(win)
@@ -293,12 +309,7 @@ function M._winbar()
 
   local parts = {}
   for index, entry in ipairs(group.terminals) do
-    local title = entry.title
-    if title == nil then
-      local ok, dynamic_title = pcall(vim.api.nvim_buf_get_var, entry.terminal.buf, "term_title")
-      title = ok and dynamic_title or ""
-    end
-    title = escape_winbar_title(title)
+    local title = escape_winbar_title(winbar_title(entry))
     if index > 1 then
       parts[#parts + 1] = "%#NormalFloat# "
     end
@@ -466,6 +477,7 @@ function M.new(cmd, opts)
 
   local entry = {
     cwd = cwd,
+    cmd = cmd,
     terminal = terminal,
     title = opts and opts.title,
     hiding = false,
