@@ -46,6 +46,9 @@ function Terminal:show()
     height = 4,
     style = "minimal",
   })
+  for option, value in pairs(self.opts.win.wo or {}) do
+    vim.api.nvim_set_option_value(option, value, { win = self.win })
+  end
   self:_attach_win_events()
   return self
 end

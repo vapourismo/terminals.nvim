@@ -80,9 +80,10 @@ installing a global mapping. For example: >lua
 
 Unrelated custom `win.keys` entries are preserved. The following invariants
 are applied last and cannot be overridden: floating position, configured
-width, disabled folding with manual fold method, and no Normal-mode q mapping.
-Escape handling uses the Snacks defaults; terminals.nvim does not supply
-Escape mappings.
+width, disabled folding with manual fold method, the managed `win.wo.winbar`
+expression, and no Normal-mode q mapping. A user-provided `win.wo.winbar` is
+replaced. Escape handling uses the Snacks defaults; terminals.nvim does not
+supply Escape mappings.
 
 ==============================================================================
 COMMANDS                                                *terminals-commands*
@@ -147,6 +148,13 @@ use the same groups.
 Before a terminal is focused, any other visible managed terminal is hidden.
 Leaving a managed float also hides only that window. Hiding retains its buffer
 and terminal process; selecting it again restores the same Snacks object.
+
+Every managed float has a left-aligned winbar listing its directory group's
+terminals in creation order. Each title is read from the buffer-local
+`b:term_title` variable on redraw. The selected title uses WinBarNameActive;
+other titles use WinBarName. Each title has one highlighted padding space on
+both sides. Separators and all remaining winbar space use NormalFloat. These
+existing highlight groups are consumed without being redefined.
 
 Wiping a terminal buffer removes the corresponding object from the registry.
 TermClose closes the object and terminates its process without reporting the

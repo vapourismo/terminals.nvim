@@ -35,6 +35,7 @@ local registry = {}
 
 local next_count = 0
 local suppress_winleave = 0
+local winbar_expression = "%!v:lua.require'terminals'._winbar()"
 
 local function normalize_cwd()
   local cwd = vim.fn.getcwd()
@@ -237,6 +238,67 @@ local function enforced_terminal_keys()
   }
 end
 
+---@param title any
+---@return string
+local function escape_winbar_title(title)
+  if type(title) ~= "string" then
+    title = title == nil and "" or tostring(title)
+  end
+  return (title:gsub("%c", " "):gsub("%%", "%%%%"))
+end
+
+---@param win integer
+---@return string?
+local function cwd_for_win(win)
+  if win == 0 or not vim.api.nvim_win_is_valid(win) then
+    return nil
+  end
+
+  local ok, buf = pcall(vim.api.nvim_win_get_buf, win)
+  if not ok then
+    return nil
+  end
+
+  for cwd, group in pairs(registry) do
+    for _, entry in ipairs(group.terminals) do
+      if
+        not entry.removed
+        and entry.terminal.win == win
+        and entry.terminal.buf == buf
+        and buf_valid(entry.terminal)
+      then
+        return cwd
+      end
+    end
+  end
+  return nil
+end
+
+---Render the managed terminal winbar for Neovim's target statusline window.
+---@return string
+function M._winbar()
+  local win = tonumber(vim.g.statusline_winid) or 0
+  local cwd = cwd_for_win(win)
+  local group = cwd and prune(cwd) or nil
+  if not group then
+    return "%#NormalFloat#%="
+  end
+
+  local parts = {}
+  for index, entry in ipairs(group.terminals) do
+    local ok, title = pcall(vim.api.nvim_buf_get_var, entry.terminal.buf, "term_title")
+    title = escape_winbar_title(ok and title or "")
+    if index > 1 then
+      parts[#parts + 1] = "%#NormalFloat# "
+    end
+    parts[#parts + 1] = index == group.active and "%#WinBarNameActive# " or "%#WinBarName# "
+    parts[#parts + 1] = title
+    parts[#parts + 1] = " "
+  end
+  parts[#parts + 1] = "%#NormalFloat#%="
+  return table.concat(parts)
+end
+
 local function window_options()
   local user_win = config.win or {}
   return vim.tbl_deep_extend("force", {}, user_win, {
@@ -245,6 +307,7 @@ local function window_options()
     wo = {
       foldenable = false,
       foldmethod = "manual",
+      winbar = winbar_expression,
     },
     keys = vim.tbl_deep_extend(
       "force",

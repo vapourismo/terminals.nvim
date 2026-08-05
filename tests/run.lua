@@ -68,6 +68,27 @@ local function eventually_current_is(terminal)
   current_is(terminal)
 end
 
+local function set_title(terminal, title)
+  vim.api.nvim_buf_set_var(terminal.buf, "term_title", title)
+end
+
+local function eval_winbar(terminal, width)
+  truthy(terminal:win_valid(), "the terminal winbar requires a valid window")
+  local winbar = vim.api.nvim_get_option_value("winbar", { win = terminal.win })
+  return vim.api.nvim_eval_statusline(winbar, {
+    winid = terminal.win,
+    use_winbar = true,
+    highlights = true,
+    maxwidth = width,
+  })
+end
+
+local function highlight_spans(result)
+  return vim.tbl_map(function(highlight)
+    return { group = highlight.group, start = highlight.start }
+  end, result.highlights)
+end
+
 test("registers commands and forwards command forms", function()
   vim.cmd("runtime plugin/terminals.lua")
   local commands = vim.api.nvim_get_commands({ builtin = false })
@@ -274,6 +295,108 @@ test("isolates directories and cycles in creation order", function()
   current_is(created)
 end)
 
+test("renders padded terminal titles and refreshes dynamic title text", function()
+  local dir = directory("winbar-render")
+  cd(dir)
+  terminals.setup()
+  vim.api.nvim_set_hl(0, "WinBarName", { fg = "#aaaaaa" })
+  vim.api.nvim_set_hl(0, "WinBarNameActive", { fg = "#ffffff" })
+
+  local one = terminals.new("one")
+  set_title(one, "one")
+  local rendered = eval_winbar(one, 20)
+  same(rendered.str, " one " .. string.rep(" ", 15), "one terminal should remain left aligned")
+  same(highlight_spans(rendered), {
+    { group = "WinBarNameActive", start = 0 },
+    { group = "NormalFloat", start = 5 },
+  }, "a single entry and its trailing fill should use the requested highlights")
+
+  local two = terminals.new("two")
+  set_title(two, "two")
+  rendered = eval_winbar(two, 20)
+  same(rendered.str, " one   two " .. string.rep(" ", 9), "entries should retain creation order and exact spacing")
+  same(highlight_spans(rendered), {
+    { group = "WinBarName", start = 0 },
+    { group = "NormalFloat", start = 5 },
+    { group = "WinBarNameActive", start = 6 },
+    { group = "NormalFloat", start = 11 },
+  }, "inactive, separator, active, and trailing regions should be highlighted independently")
+
+  set_title(two, "100% %#Error#\nready\7")
+  rendered = eval_winbar(two, 48)
+  same(
+    rendered.str,
+    " one   100% %#Error# ready  " .. string.rep(" ", 20),
+    "title changes should redraw literally with control characters sanitized"
+  )
+  same(highlight_spans(rendered), {
+    { group = "WinBarName", start = 0 },
+    { group = "NormalFloat", start = 5 },
+    { group = "WinBarNameActive", start = 6 },
+    { group = "NormalFloat", start = 28 },
+  }, "statusline metacharacters in a title should not change highlights")
+end)
+
+test("updates winbar selection while preserving directory isolation", function()
+  local dir_a = directory("winbar-a")
+  local dir_b = directory("winbar-b")
+  cd(dir_a)
+  terminals.setup()
+
+  local alpha = terminals.new("alpha")
+  set_title(alpha, "alpha")
+  local beta = terminals.new("beta")
+  set_title(beta, "beta")
+  same(terminals.prev(), alpha, "cycling should select the first winbar entry")
+  local rendered = eval_winbar(alpha, 24)
+  same(rendered.str, " alpha   beta " .. string.rep(" ", 10), "cycling should retain creation order")
+  same(highlight_spans(rendered), {
+    { group = "WinBarNameActive", start = 0 },
+    { group = "NormalFloat", start = 7 },
+    { group = "WinBarName", start = 8 },
+    { group = "NormalFloat", start = 14 },
+  }, "cycling should move the active highlight")
+
+  cd(dir_b)
+  local other = terminals.new("other")
+  set_title(other, "other")
+  rendered = eval_winbar(other, 24)
+  same(rendered.str, " other " .. string.rep(" ", 17), "another directory should have an isolated winbar")
+
+  cd(dir_a)
+  same(terminals.toggle(), alpha, "the original directory selection should be restored")
+  rendered = eval_winbar(alpha, 24)
+  same(rendered.str, " alpha   beta " .. string.rep(" ", 10), "restoring a group should not mix directory titles")
+end)
+
+test("removes closed, exited, and wiped terminals from the winbar", function()
+  local dir = directory("winbar-removal")
+  cd(dir)
+  terminals.setup()
+
+  local first = terminals.new("first")
+  set_title(first, "first")
+
+  local closed = terminals.new("closed")
+  set_title(closed, "closed")
+  same(terminals.close(), closed, "the newest terminal should close")
+  local rendered = eval_winbar(first, 20)
+  same(rendered.str, " first " .. string.rep(" ", 13), "a closed terminal should disappear from the winbar")
+
+  local successful = terminals.new("successful")
+  set_title(successful, "successful")
+  successful:exit(0)
+  rendered = eval_winbar(first, 20)
+  same(rendered.str, " first " .. string.rep(" ", 13), "a successful exit should disappear from the winbar")
+
+  local wiped = terminals.new("wiped")
+  set_title(wiped, "wiped")
+  vim.api.nvim_buf_delete(wiped.buf, { force = true })
+  eventually_current_is(first)
+  rendered = eval_winbar(first, 20)
+  same(rendered.str, " first " .. string.rep(" ", 13), "a wiped terminal should disappear from the winbar")
+end)
+
 test("shares terminal selections across tabs", function()
   local dir = directory("tabs")
   cd(dir)
@@ -401,6 +524,7 @@ test("merges float options and enforces terminal invariants", function()
         number = true,
         foldenable = true,
         foldmethod = "expr",
+        winbar = "user winbar",
       },
       keys = {
         q = "close",
@@ -426,6 +550,7 @@ test("merges float options and enforces terminal invariants", function()
   same(win.wo.number, true, "unrelated window-local options should survive")
   same(win.wo.foldenable, false, "folding should be disabled")
   same(win.wo.foldmethod, "manual", "manual fold method should be enforced")
+  same(win.wo.winbar, "%!v:lua.require'terminals'._winbar()", "the managed winbar should be enforced")
   truthy(win.keys.custom, "custom key mappings should survive")
   same(win.keys.term_new, custom_new, "the new-terminal mapping should be replaceable by name")
   same(win.keys.term_close, custom_close, "the close mapping should be replaceable by name")

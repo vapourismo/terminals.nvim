@@ -81,10 +81,11 @@ require("terminals").setup({
 
 Unrelated custom `win.keys` entries are preserved. The manager applies its
 required window behavior last: `position = "float"`, the configured width,
-manual folding with folding disabled, and no Normal-mode `q` mapping. Escape
-handling uses the Snacks defaults; `terminals.nvim` does not supply Escape
-mappings. The enforced window behavior and disabled `q` mapping cannot be
-overridden.
+manual folding with folding disabled, its managed `win.wo.winbar` expression,
+and no Normal-mode `q` mapping. Escape handling uses the Snacks defaults;
+`terminals.nvim` does not supply Escape mappings. These enforced window
+options and the disabled `q` mapping cannot be overridden; in particular, a
+user-provided `win.wo.winbar` is replaced.
 
 ## Commands
 
@@ -107,6 +108,13 @@ terminal. `setup()` has no return value.
 Only one managed float is shown at a time. Leaving a terminal float hides its
 window but preserves its buffer and process; toggling or cycling back restores
 the same persistent terminal. Wiping its buffer removes it from the registry.
+Every managed float has a left-aligned winbar listing its directory group's
+terminals in creation order. Titles are read from each buffer's `b:term_title`
+on redraw. The selected title uses `WinBarNameActive`; other titles use
+`WinBarName`. Each title has one highlighted padding space on both sides, while
+the space between entries and the remaining winbar use `NormalFloat`. The
+plugin consumes these highlight groups without redefining them.
+
 Intentional closes through `close()`, `:TermClose`, or the default `<D-w>`
 mapping are silent. A command that exits unsuccessfully still reports its exit
 status and keeps the terminal open for inspection; a successful exit closes it.
