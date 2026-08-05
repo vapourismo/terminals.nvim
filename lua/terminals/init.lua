@@ -19,6 +19,7 @@ end
 ---@field cmd? string|string[]
 ---@field terminal snacks.terminal
 ---@field title? string
+---@field exit_status? integer
 ---@field hiding boolean
 ---@field intentional_close boolean
 ---@field removed boolean
@@ -365,6 +366,9 @@ function M._winbar()
     parts[#parts + 1] = index == group.active and "%#WinBarNameActive# " or "%#WinBarName# "
     parts[#parts + 1] = title
     parts[#parts + 1] = " "
+    if entry.exit_status ~= nil then
+      parts[#parts + 1] = "%#TermBarStatus# " .. entry.exit_status .. " "
+    end
   end
   parts[#parts + 1] = "%#NormalFloat#%="
   return table.concat(parts)
@@ -416,6 +420,8 @@ local function attach(entry)
         status = event.data.status
       end
       if status ~= 0 then
+        entry.exit_status = status
+        vim.cmd.redrawstatus()
         snacks().notify.error("Terminal exited with code " .. status .. ".\nCheck for any errors.")
         return
       end

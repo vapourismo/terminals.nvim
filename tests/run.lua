@@ -249,6 +249,12 @@ test("retains hidden failed exits for inspection without stealing focus", functi
   current_is(focused)
   same(terminals.prev(), failed, "a hidden failed terminal should remain selectable")
   current_is(failed)
+  local rendered = eval_winbar(failed, 24)
+  same(
+    rendered.str,
+    " failed  17   focused " .. string.rep(" ", 2),
+    "a hidden failed terminal should display its preserved status when reopened"
+  )
 end)
 
 test("focuses adjacent terminals after buffer wipes without stealing background focus", function()
@@ -454,6 +460,46 @@ test("renders command-derived winbar titles and ignores buffer titles", function
     { group = "WinBarNameActive", start = 0 },
     { group = "NormalFloat", start = 22 },
   }, "statusline metacharacters in a command should not change highlights")
+end)
+
+test("renders failed exit statuses beside active and inactive titles", function()
+  cd(directory("winbar-exit-status"))
+  terminals.setup()
+  vim.api.nvim_set_hl(0, "WinBarName", { fg = "#aaaaaa" })
+  vim.api.nvim_set_hl(0, "WinBarNameActive", { fg = "#ffffff" })
+  vim.api.nvim_set_hl(0, "TermBarStatus", { fg = "#ff0000" })
+
+  local failed = terminals.new("failed")
+  local rendered = eval_winbar(failed, 24)
+  same(rendered.str, " failed " .. string.rep(" ", 16), "a running terminal should have no status box")
+  same(highlight_spans(rendered), {
+    { group = "WinBarNameActive", start = 0 },
+    { group = "NormalFloat", start = 8 },
+  }, "a running terminal should use only title and fill highlights")
+
+  failed:exit(17)
+  rendered = eval_winbar(failed, 24)
+  same(rendered.str, " failed  17 " .. string.rep(" ", 12), "a failure should display its exact exit status")
+  same(highlight_spans(rendered), {
+    { group = "WinBarNameActive", start = 0 },
+    { group = "TermBarStatus", start = 8 },
+    { group = "NormalFloat", start = 12 },
+  }, "the status box should directly follow the active title with padded status highlighting")
+
+  local running = terminals.new("running")
+  rendered = eval_winbar(running, 28)
+  same(
+    rendered.str,
+    " failed  17   running " .. string.rep(" ", 6),
+    "a failed status should remain visible when its title becomes inactive"
+  )
+  same(highlight_spans(rendered), {
+    { group = "WinBarName", start = 0 },
+    { group = "TermBarStatus", start = 8 },
+    { group = "NormalFloat", start = 12 },
+    { group = "WinBarNameActive", start = 13 },
+    { group = "NormalFloat", start = 22 },
+  }, "only the separator between terminal entries should use NormalFloat")
 end)
 
 test("renders argv and shell terminal winbar titles", function()

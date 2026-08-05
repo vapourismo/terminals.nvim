@@ -139,9 +139,12 @@ uses the terminal's creation command: shell strings are displayed directly,
 argv lists are joined with single spaces without shell quoting, and a terminal
 created without a command is labeled `terminal`. The selected title uses
 `WinBarNameActive`; other titles use `WinBarName`. Each title has one
-highlighted padding space on both sides, while the space between entries and
-the remaining winbar use `NormalFloat`. The plugin consumes these highlight
-groups without redefining them.
+highlighted padding space on both sides. A retained terminal that exits with a
+non-zero status appends its numeric code directly after its title, with one
+padding space on both sides highlighted by `TermBarStatus`. The space between
+terminal entries and the remaining winbar use `NormalFloat`. The plugin
+consumes `WinBarName`, `WinBarNameActive`, `TermBarStatus`, and `NormalFloat`
+without defining or overriding them.
 
 Intentional closes through `close()`, `:TermClose`, or the default `<D-w>`
 mapping are silent. A command that exits unsuccessfully still reports its exit

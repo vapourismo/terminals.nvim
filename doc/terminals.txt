@@ -181,9 +181,11 @@ the terminal's creation command. Shell strings are displayed directly, argv
 lists are joined with single spaces without shell quoting, and a terminal
 created without a command is labeled `terminal`. The selected title uses
 WinBarNameActive; other titles use WinBarName. Each title has one highlighted
-padding space on both sides. Separators and all remaining winbar space use
-NormalFloat. These existing highlight groups are consumed without being
-redefined.
+padding space on both sides. A retained terminal that exits with a non-zero
+status appends its numeric code directly after its title, with one padding
+space on both sides highlighted by TermBarStatus. Separators and all remaining
+winbar space use NormalFloat. WinBarName, WinBarNameActive, TermBarStatus, and
+NormalFloat are consumed without being defined or overridden.
 
 Wiping a terminal buffer removes the corresponding object from the registry.
 TermClose closes the object and terminates its process without reporting the
