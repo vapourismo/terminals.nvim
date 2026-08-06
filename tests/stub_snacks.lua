@@ -113,6 +113,18 @@ function Terminal:exit(status)
   return self
 end
 
+function Terminal:request(sequence)
+  vim.api.nvim_exec_autocmds("TermRequest", {
+    buffer = self.buf,
+    data = {
+      sequence = sequence,
+      terminator = "\7",
+      cursor = { 1, 0 },
+    },
+  })
+  return self
+end
+
 function Terminal:on(event, callback, opts)
   opts = opts or {}
   local handler = { event = event, callback = callback, opts = opts }

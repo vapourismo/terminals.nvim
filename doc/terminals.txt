@@ -196,8 +196,16 @@ WinBarNameActive; other titles use WinBarName. Each title has one highlighted
 padding space on both sides. A retained terminal that exits with a non-zero
 status appends its numeric code directly after its title, with one padding
 space on both sides highlighted by TermBarStatus. Separators and all remaining
-winbar space use NormalFloat. WinBarName, WinBarNameActive, TermBarStatus, and
-NormalFloat are consumed without being defined or overridden.
+winbar space use NormalFloat. WinBarName, WinBarNameActive, TermBarStatus,
+TermBarAttention, and NormalFloat are consumed without being defined or
+overridden.
+
+An OSC 9 notification from an unfocused managed terminal appends a padded !
+box after that terminal's exit-status box, highlighted by TermBarAttention.
+Repeated notifications retain one mark, and focusing the terminal clears it.
+Notifications emitted while the terminal is focused are ignored. OSC 9;4
+progress sequences and unrelated terminal requests do not set attention. The
+notification text is discarded.
 
 Wiping a terminal buffer removes the corresponding object from the registry.
 TermClose closes the object and terminates its process without reporting the

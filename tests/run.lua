@@ -532,6 +532,54 @@ test("renders failed exit statuses beside active and inactive titles", function(
   }, "only the separator between terminal entries should use NormalFloat")
 end)
 
+test("tracks unread OSC 9 notifications in the winbar", function()
+  cd(directory("winbar-attention"))
+  terminals.setup()
+  vim.api.nvim_set_hl(0, "WinBarName", { fg = "#aaaaaa" })
+  vim.api.nvim_set_hl(0, "WinBarNameActive", { fg = "#ffffff" })
+  vim.api.nvim_set_hl(0, "TermBarStatus", { fg = "#ff0000" })
+  vim.api.nvim_set_hl(0, "TermBarAttention", { fg = "#ffff00" })
+
+  local background = terminals.new("background")
+  local focused = terminals.new("focused")
+
+  focused:request("\027]9;focused notification")
+  background:request("\027]9;4;1;50")
+  background:request("\027]133;A")
+  local rendered = eval_winbar(focused, 40)
+  same(
+    rendered.str,
+    " background   focused " .. string.rep(" ", 18),
+    "focused notifications, OSC 9 progress, and unrelated requests should be ignored"
+  )
+
+  background:request("\027]9;build finished")
+  background:request("\027]9;another notification")
+  background:exit(17)
+  rendered = eval_winbar(focused, 40)
+  same(
+    rendered.str,
+    " background  17  !   focused " .. string.rep(" ", 11),
+    "repeated background notifications should produce one padded attention box after the exit status"
+  )
+  same(highlight_spans(rendered), {
+    { group = "WinBarName", start = 0 },
+    { group = "TermBarStatus", start = 12 },
+    { group = "TermBarAttention", start = 16 },
+    { group = "NormalFloat", start = 19 },
+    { group = "WinBarNameActive", start = 20 },
+    { group = "NormalFloat", start = 29 },
+  }, "attention should compose with inactive titles, exit statuses, separators, and the active title")
+
+  same(terminals.prev(), background, "focusing the notifying terminal should select it")
+  rendered = eval_winbar(background, 40)
+  same(
+    rendered.str,
+    " background  17   focused " .. string.rep(" ", 14),
+    "focusing a terminal should clear its unread attention"
+  )
+end)
+
 test("renders argv and shell terminal winbar titles", function()
   cd(directory("winbar-command-forms"))
   terminals.setup()

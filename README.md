@@ -151,8 +151,15 @@ highlighted padding space on both sides. A retained terminal that exits with a
 non-zero status appends its numeric code directly after its title, with one
 padding space on both sides highlighted by `TermBarStatus`. The space between
 terminal entries and the remaining winbar use `NormalFloat`. The plugin
-consumes `WinBarName`, `WinBarNameActive`, `TermBarStatus`, and `NormalFloat`
-without defining or overriding them.
+consumes `WinBarName`, `WinBarNameActive`, `TermBarStatus`, `TermBarAttention`,
+and `NormalFloat` without defining or overriding them.
+
+An OSC 9 notification emitted by an unfocused managed terminal adds a padded
+`!` box after that terminal's exit-status box, highlighted by
+`TermBarAttention`. Repeated notifications retain a single mark. Focusing the
+terminal clears it, and notifications emitted while the terminal is focused
+are ignored. OSC 9;4 progress sequences and unrelated terminal requests do not
+set the mark. Notification text is not retained.
 
 Intentional closes through `close()`, `:TermClose`, or the default `<D-w>`
 mapping are silent. A command that exits unsuccessfully still reports its exit

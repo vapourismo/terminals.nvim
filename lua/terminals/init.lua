@@ -20,6 +20,7 @@ end
 ---@field terminal snacks.terminal
 ---@field title? string
 ---@field exit_status? integer
+---@field attention boolean
 ---@field hiding boolean
 ---@field intentional_close boolean
 ---@field removed boolean
@@ -211,6 +212,14 @@ local function entry_focused(entry)
     and entry.terminal.buf == vim.api.nvim_get_current_buf()
 end
 
+---@param entry terminals.Entry
+local function clear_attention(entry)
+  if entry.attention then
+    entry.attention = false
+    vim.cmd.redrawstatus()
+  end
+end
+
 ---@return terminals.Entry?
 local function focused_entry()
   prune_all()
@@ -369,6 +378,9 @@ function M._winbar()
     if entry.exit_status ~= nil then
       parts[#parts + 1] = "%#TermBarStatus# " .. entry.exit_status .. " "
     end
+    if entry.attention then
+      parts[#parts + 1] = "%#TermBarAttention# ! "
+    end
   end
   parts[#parts + 1] = "%#NormalFloat#%="
   return table.concat(parts)
@@ -406,6 +418,38 @@ end
 ---@param entry terminals.Entry
 local function attach(entry)
   local terminal = entry.terminal
+
+  vim.api.nvim_create_autocmd("TermRequest", {
+    group = lifecycle_group,
+    buffer = terminal.buf,
+    callback = function(event)
+      local data = type(event.data) == "table" and event.data or nil
+      local sequence = data and data.sequence or nil
+      if type(sequence) ~= "string" then
+        return
+      end
+
+      local message = sequence:match("^\027%]9;(.*)$")
+      if message == nil or message:match("^4;") or entry_focused(entry) then
+        return
+      end
+
+      if not entry.attention then
+        entry.attention = true
+        vim.cmd.redrawstatus()
+      end
+    end,
+  })
+
+  vim.api.nvim_create_autocmd({ "BufEnter", "WinEnter" }, {
+    group = lifecycle_group,
+    buffer = terminal.buf,
+    callback = function()
+      if entry_focused(entry) then
+        clear_attention(entry)
+      end
+    end,
+  })
 
   vim.api.nvim_create_autocmd("TermClose", {
     group = lifecycle_group,
@@ -543,6 +587,7 @@ function M.new(cmd, opts)
     cmd = cmd,
     terminal = terminal,
     title = opts and opts.title,
+    attention = false,
     hiding = false,
     intentional_close = false,
     removed = false,
