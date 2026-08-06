@@ -542,6 +542,7 @@ test("tracks unread OSC 9 notifications in the winbar", function()
 
   local background = terminals.new("background")
   local focused = terminals.new("focused")
+  falsy(background:win_valid(), "the notifying terminal should be hidden before receiving OSC 9")
 
   focused:request("\027]9;focused notification")
   background:request("\027]9;4;1;50")

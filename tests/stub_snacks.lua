@@ -48,7 +48,7 @@ function Terminal:show()
     return self
   end
   local width = math.max(1, math.min(self.opts.win.width or 40, vim.o.columns - 2))
-  self.win = vim.api.nvim_open_win(self.buf, false, {
+  local win = vim.api.nvim_open_win(self.buf, self.opts.win.enter ~= false, {
     relative = "editor",
     row = 1,
     col = 1,
@@ -56,6 +56,7 @@ function Terminal:show()
     height = 4,
     style = "minimal",
   })
+  self.win = win
   for option, value in pairs(self.opts.win.wo or {}) do
     vim.api.nvim_set_option_value(option, value, { win = self.win })
   end

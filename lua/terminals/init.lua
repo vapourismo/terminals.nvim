@@ -445,9 +445,7 @@ local function attach(entry)
     group = lifecycle_group,
     buffer = terminal.buf,
     callback = function()
-      if entry_focused(entry) then
-        clear_attention(entry)
-      end
+      clear_attention(entry)
     end,
   })
 
