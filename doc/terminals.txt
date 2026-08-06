@@ -121,10 +121,12 @@ setup({opts})                                     *terminals.setup()*
     {opts.win} is a table of Snacks float options. Returns nothing.
 
 new({cmd}, {opts})                                   *terminals.new()*
-    Create, select, and focus a terminal. {cmd} may be a shell string, an argv
-    list, or nil. {opts} is optional. {opts.title} sets a persistent winbar
-    title, and {opts.cwd} sets the process working directory and terminal
-    group. Returns the new Snacks terminal object. For example: >lua
+    Create and select a terminal. Focus it when its resolved directory matches
+    the applicable current directory; otherwise start it hidden. {cmd} may be
+    a shell string, an argv list, or nil. {opts} is optional. {opts.title} sets
+    a persistent winbar title, and {opts.cwd} sets the process working
+    directory and terminal group. Returns the new Snacks terminal object. For
+    example: >lua
 
         require("terminals").new("npm test", {
           cwd = "../app",
@@ -138,7 +140,13 @@ new({cmd}, {opts})                                   *terminals.new()*
     managed terminal. Without {opts.cwd}, new() uses that same base directory.
     The resolved absolute directory is passed to Snacks as `cwd` and used as
     the terminal-group key. :TermNew has no custom-directory syntax; use this
-    Lua API instead.
+    Lua API instead. If the resolved directory differs from the captured base,
+    the process starts and becomes its target group's active selection, but its
+    window is hidden and the current window remains visible and focused.
+    Toggling from the target directory later reveals the same terminal. If the
+    directories match, new() hides another visible managed terminal and focuses
+    the new one. :TermNew and the default new-terminal mapping therefore remain
+    foreground operations.
 
 close()                                            *terminals.close()*
     Destroy the focused managed terminal and return its Snacks object. Returns
@@ -170,9 +178,13 @@ directly. Without {opts.cwd}, a new terminal inherits the focused terminal's
 group or uses vim.fn.getcwd() outside one. Equivalent normalized absolute
 paths therefore share a group, including creation order and active selection.
 
-Before a terminal is focused, any other visible managed terminal is hidden.
-Leaving a managed float also hides only that window. Hiding retains its buffer
-and terminal process; selecting it again restores the same Snacks object.
+Creating a terminal whose resolved directory matches the applicable directory
+hides any other visible managed terminal, then shows and focuses the new one.
+If the directories differ, the new terminal starts hidden as the target group's
+active selection, preserving the current window and any visible managed
+terminal. Leaving a managed float also hides only that window. Hiding retains
+its buffer and terminal process; selecting it again restores the same Snacks
+object.
 
 Every managed float has a left-aligned winbar listing its directory group's
 terminals in creation order. A non-nil {opts.title}, including an empty string,

@@ -232,9 +232,9 @@ local function applicable_cwd()
 end
 
 ---@param cwd? string
+---@param base string
 ---@return string
-local function resolve_cwd(cwd)
-  local base = applicable_cwd()
+local function resolve_cwd(cwd, base)
   if cwd == nil then
     return base
   end
@@ -504,22 +504,30 @@ function M.setup(opts)
   config = vim.tbl_deep_extend("force", {}, defaults, opts or {})
 end
 
----Create, select, and focus a terminal for its effective directory.
+---Create a terminal for its effective directory, focusing it when that directory is applicable.
 ---@param cmd? string|string[]
 ---@param opts? terminals.NewOptions
 ---@return snacks.terminal
 function M.new(cmd, opts)
-  local cwd = resolve_cwd(opts and opts.cwd)
+  local base = applicable_cwd()
+  local cwd = resolve_cwd(opts and opts.cwd, base)
+  local foreground = cwd == base
   next_count = next_count + 1
 
   local terminal
   without_winleave(function()
-    hide_visible()
+    if foreground then
+      hide_visible()
+    end
+    local win = window_options()
+    if not foreground then
+      win.enter = false
+    end
     terminal = snacks().terminal.open(cmd, {
       auto_close = false,
       cwd = cwd,
       count = next_count,
-      win = window_options(),
+      win = win,
     })
   end)
   assert(terminal, "Snacks.terminal.open() did not return a terminal")
@@ -545,8 +553,12 @@ function M.new(cmd, opts)
   attach(entry)
 
   without_winleave(function()
-    terminal:show()
-    terminal:focus()
+    if foreground then
+      terminal:show()
+      terminal:focus()
+    else
+      terminal:hide()
+    end
   end)
   return terminal
 end

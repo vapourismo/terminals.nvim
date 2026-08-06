@@ -49,7 +49,7 @@ end
 local function directory(name)
   local path = temp_root .. "/" .. name
   vim.fn.mkdir(path, "p")
-  return path
+  return (vim.uv or vim.loop).fs_realpath(path) or path
 end
 
 local function cd(path)
@@ -335,7 +335,7 @@ test("isolates directories and cycles in creation order", function()
   current_is(created)
 end)
 
-test("forwards an absolute cwd and uses it as the terminal group", function()
+test("starts an absolute cross-directory terminal hidden and reuses it later", function()
   local editor_dir = directory("cwd-absolute-editor")
   local target_dir = directory("cwd-absolute-target")
   cd(editor_dir)
@@ -343,40 +343,53 @@ test("forwards an absolute cwd and uses it as the terminal group", function()
   local requested = target_dir .. "/nested/../."
   local terminal = terminals.new("absolute", { cwd = requested, title = "Absolute" })
   same(terminal.opts.cwd, target_dir, "an absolute cwd should be normalized and forwarded to Snacks")
+  truthy(terminal.process_running, "a background-created terminal should be running")
+  falsy(terminal:win_valid(), "a cross-directory terminal should be hidden after creation")
+  same(vim.api.nvim_get_current_win(), main_win, "cross-directory creation should preserve the editor window")
+  same(terminal.opts.win.enter, false, "a background-created Snacks window should not take focus")
+
+  local opened = #stub.opened
+  cd(target_dir)
+  same(terminals.toggle(), terminal, "toggling from the target directory should reveal the created terminal")
+  same(#stub.opened, opened, "revealing a background-created terminal should not create another one")
+  current_is(terminal)
   same(
     eval_winbar(terminal, 20).str,
     " Absolute " .. string.rep(" ", 10),
     "cwd and title options should compose"
   )
 
-  local opened = #stub.opened
-  local same_group = terminals.new("same-group", { cwd = target_dir })
+  local same_group = terminals.new("same-group", { cwd = target_dir .. "/nested/.." })
   same(#stub.opened, opened + 1, "creating another terminal should open exactly one Snacks terminal")
+  current_is(same_group)
   same(terminals.prev(), terminal, "the normalized absolute cwd should own the terminal group")
   same(terminals.next(), same_group, "the equivalent absolute cwd should share the group")
 end)
 
-test("resolves relative cwd values against the applicable group", function()
+test("resolves relative cwd values against the captured applicable directory", function()
   local root = directory("cwd-relative")
   local target = root .. "/target"
   vim.fn.mkdir(target, "p")
   cd(root)
-  local normalized_target = vim.fs.normalize(vim.fn.getcwd() .. "/target")
+  local normalized_root = vim.fs.normalize(vim.fn.getcwd())
+  local normalized_target = vim.fs.normalize(normalized_root .. "/target")
 
-  local outside_relative = terminals.new("outside-relative", { cwd = "target/." })
-  same(outside_relative.opts.cwd, normalized_target, "outside a terminal, relative cwd should use Neovim's cwd")
+  local equivalent = terminals.new("equivalent", { cwd = "target/.." })
+  same(equivalent.opts.cwd, normalized_root, "outside a terminal, relative cwd should use Neovim's cwd")
+  current_is(equivalent)
+
+  local cross_relative = terminals.new("cross-relative", { cwd = "target/." })
+  same(cross_relative.opts.cwd, normalized_target, "inside a terminal, relative cwd should use its group")
+  falsy(cross_relative:win_valid(), "a relative path resolving to another directory should stay hidden")
+  current_is(equivalent)
 
   vim.api.nvim_set_current_win(main_win)
-  vim.wait(100, function()
-    return not outside_relative:win_valid()
-  end)
-  local absolute = terminals.new("absolute", { cwd = normalized_target .. "/." })
-  same(absolute.opts.cwd, normalized_target, "the equivalent absolute cwd should normalize identically")
-
+  cd(target)
+  same(terminals.toggle(), cross_relative, "the relative target group should retain its background selection")
   local focused_relative = terminals.new("focused-relative", { cwd = "../target/." })
-  same(focused_relative.opts.cwd, normalized_target, "inside a terminal, relative cwd should use its group")
-  same(terminals.prev(), absolute, "equivalent relative and absolute paths should share a group")
-  same(terminals.prev(), outside_relative, "the original relative path should belong to the same group")
+  same(focused_relative.opts.cwd, normalized_target, "a relative equivalent path should use the focused group as its base")
+  current_is(focused_relative)
+  same(terminals.prev(), cross_relative, "equivalent relative paths should share a group")
 end)
 
 test("inherits an overridden cwd for new terminals and the default mapping", function()
@@ -386,6 +399,10 @@ test("inherits an overridden cwd for new terminals and the default mapping", fun
   terminals.setup()
 
   local first = terminals.new("first", { cwd = target_dir })
+  falsy(first:win_valid(), "the overridden terminal should initially be created in the background")
+  vim.api.nvim_set_current_win(main_win)
+  cd(target_dir)
+  same(terminals.toggle(), first, "the overridden terminal should be revealable from its directory")
   local second = terminals.new()
   same(second.opts.cwd, target_dir, "new() should inherit the focused terminal's group")
 
@@ -402,8 +419,20 @@ test("uses a focused overridden group for cycling and toggling", function()
   cd(editor_dir)
 
   local editor_terminal = terminals.new("editor")
+  local editor_hide_count = editor_terminal.hide_count
   local first = terminals.new("first", { cwd = target_dir })
-  local second = terminals.new("second")
+  falsy(first:win_valid(), "cross-directory creation from a terminal should hide only the new terminal")
+  truthy(editor_terminal:win_valid(), "cross-directory creation should leave the focused terminal visible")
+  same(editor_terminal.hide_count, editor_hide_count, "cross-directory creation should not hide the focused terminal")
+  current_is(editor_terminal)
+
+  local second = terminals.new("second", { cwd = target_dir })
+  falsy(second:win_valid(), "another terminal for the target group should also start hidden")
+  current_is(editor_terminal)
+
+  vim.api.nvim_set_current_win(main_win)
+  cd(target_dir)
+  same(terminals.toggle(), second, "the overridden group should select its newest background-created terminal")
 
   same(terminals.prev(), first, "previous should use the focused terminal's overridden group")
   same(terminals.next(), second, "next should use the focused terminal's overridden group")
@@ -411,6 +440,7 @@ test("uses a focused overridden group for cycling and toggling", function()
   falsy(second:win_valid(), "toggle should hide the overridden terminal")
 
   local opened = #stub.opened
+  cd(editor_dir)
   same(terminals.toggle(), editor_terminal, "outside a terminal, toggle should use Neovim's cwd")
   same(#stub.opened, opened, "the editor cwd group should be reused outside a terminal")
   current_is(editor_terminal)

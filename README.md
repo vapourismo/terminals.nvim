@@ -93,7 +93,7 @@ user-provided `win.wo.winbar` is replaced.
 
 | Command | Lua | Behavior |
 | --- | --- | --- |
-| `:TermNew [command...]` | `require("terminals").new(cmd?, opts?)` | Create, select, and focus a terminal. Lua accepts a shell string or argv list. |
+| `:TermNew [command...]` | `require("terminals").new(cmd?, opts?)` | Create and select a terminal. Lua focuses it when its resolved directory matches the applicable directory; otherwise it starts hidden. |
 | `:TermClose` | `.close()` | Destroy the focused managed terminal; do nothing outside one. |
 | `:TermPrev` | `.prev()` | Circularly select the previous terminal for the applicable directory group. |
 | `:TermNext` | `.next()` | Circularly select the next terminal for the applicable directory group. |
@@ -120,13 +120,21 @@ managed terminal. With no `opts.cwd`, `new()` uses that same base directory.
 The resolved absolute path is passed to Snacks as the process `cwd` and owns the
 terminal group, so equivalent normalized paths share creation order and active
 selection. `:TermNew` retains its existing command-only syntax; use the Lua API
-to select a custom directory.
+to select a custom directory. When the resolved path matches the captured base
+directory, `new()` hides any other visible managed terminal and focuses the new
+one as before. When it differs, the terminal process is started and made the
+target group's active selection, but its window is hidden and the current
+window remains visible and focused. Toggling from the target directory later
+reveals that same terminal. Because `:TermNew` and the default new-terminal
+mapping do not set another directory, they remain foreground operations.
 
 The Lua functions return the selected Snacks terminal object. `close()`,
 `prev()`, and `next()` return `nil` when there is no applicable managed
 terminal. `setup()` has no return value.
 
-Only one managed float is shown at a time. Leaving a terminal float hides its
+Only one managed float is shown at a time. Creating a terminal for another
+directory keeps the currently visible float or editor window in place and
+starts the new terminal in the background. Leaving a terminal float hides its
 window but preserves its buffer and process; toggling or cycling back restores
 the same persistent terminal. While a managed terminal is focused, `new()`,
 `prev()`, `next()`, and `toggle()` operate on its directory group. Outside a
