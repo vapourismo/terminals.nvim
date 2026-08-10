@@ -245,6 +245,14 @@ Notifications emitted while the terminal is focused are ignored. OSC 9;4
 progress sequences and unrelated terminal requests do not set attention. The
 notification text is discarded.
 
+                                      *terminals-t-attention* *t:attention*
+The plugin owns the boolean tabpage variable t:attention for use by custom
+tablines. It is true when at least one valid managed terminal for the
+tabpage's normalized working directory has unread attention, across all
+terminal positions, and false otherwise. A tabpage-local :tcd directory takes
+precedence over the global directory. Window-local :lcd directories are
+ignored. Tabpages that share a directory share its aggregate attention state.
+
 Wiping a terminal buffer removes the corresponding object from the registry.
 TermClose closes the object and terminates its process without reporting the
 expected process termination as an error. The Lua close() API and default

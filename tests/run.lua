@@ -84,6 +84,10 @@ local function eval_winbar(terminal, width)
   })
 end
 
+local function tab_attention(tabpage)
+  return vim.api.nvim_tabpage_get_var(tabpage or vim.api.nvim_get_current_tabpage(), "attention")
+end
+
 local function highlight_spans(result)
   return vim.tbl_map(function(highlight)
     return { group = highlight.group, start = highlight.start }
@@ -714,10 +718,12 @@ test("tracks unread OSC 9 notifications in the winbar", function()
     " background   focused " .. string.rep(" ", 18),
     "focused notifications, OSC 9 progress, and unrelated requests should be ignored"
   )
+  same(tab_attention(), false, "ignored notifications should leave the tabpage attention false")
 
   background:request("\027]9;build finished")
   background:request("\027]9;another notification")
   background:exit(17)
+  same(tab_attention(), true, "an unread notification should set the tabpage attention")
   rendered = eval_winbar(focused, 40)
   same(
     rendered.str,
@@ -740,6 +746,102 @@ test("tracks unread OSC 9 notifications in the winbar", function()
     " background  17   focused " .. string.rep(" ", 14),
     "focusing a terminal should clear its unread attention"
   )
+  same(tab_attention(), false, "reading the last notification should clear the tabpage attention")
+end)
+
+test("aggregates tabpage attention across terminal positions", function()
+  cd(directory("tabpage-attention-positions"))
+  terminals.setup()
+
+  local floating = terminals.new("floating", { position = "float" })
+  local side = terminals.new("side", { position = "left" })
+  vim.api.nvim_set_current_win(main_win)
+
+  floating:request("\027]9;floating finished")
+  side:request("\027]9;side finished")
+  same(tab_attention(), true, "attention in any position should mark the tabpage")
+
+  same(terminals.toggle({ position = "float" }), floating, "the floating terminal should be focused")
+  same(tab_attention(), true, "another attentive position should keep the tabpage marked")
+
+  same(terminals.prev({ position = "left" }), side, "the side terminal should be focused")
+  same(tab_attention(), false, "clearing the last attentive position should clear the tabpage")
+end)
+
+test("clears tabpage attention when attentive terminals exit or are wiped", function()
+  cd(directory("tabpage-attention-removal"))
+  terminals.setup()
+
+  local successful = terminals.new("successful")
+  local kept = terminals.new("kept")
+  successful:request("\027]9;successful finished")
+  same(tab_attention(), true, "a background terminal should mark the tabpage")
+  successful:exit(0)
+  same(tab_attention(), false, "a successful exit should clear its last attention")
+
+  local wiped = terminals.new("wiped")
+  same(terminals.prev(), kept, "the retained terminal should provide background focus")
+  wiped:request("\027]9;wiped finished")
+  same(tab_attention(), true, "the terminal to wipe should mark the tabpage")
+  vim.api.nvim_buf_delete(wiped.buf, { force = true })
+  same(tab_attention(), false, "wiping the last attentive terminal should clear the tabpage")
+
+  local pruned = terminals.new("pruned")
+  same(terminals.prev(), kept, "the retained terminal should stay available for pruning")
+  pruned:request("\027]9;pruned finished")
+  same(tab_attention(), true, "the terminal to prune should mark the tabpage")
+  vim.cmd("noautocmd bwipeout! " .. pruned.buf)
+  eval_winbar(kept, 20)
+  same(tab_attention(), false, "pruning the last invalid attentive terminal should clear the tabpage")
+end)
+
+test("synchronizes attention across tabpage and global directory changes", function()
+  local attentive_dir = directory("tabpage-attention-cwd")
+  local unrelated_dir = directory("tabpage-attention-unrelated")
+  cd(attentive_dir)
+  terminals.setup()
+
+  local main_tab = vim.api.nvim_get_current_tabpage()
+  local background = terminals.new("background")
+  terminals.new("focused")
+  background:request("\027]9;build finished")
+  same(tab_attention(main_tab), true, "the original associated tabpage should be marked")
+
+  vim.cmd("tabnew")
+  local shared_tab = vim.api.nvim_get_current_tabpage()
+  same(tab_attention(shared_tab), true, "a new tabpage sharing the cwd should be marked immediately")
+
+  vim.cmd("tabnew")
+  local unrelated_tab = vim.api.nvim_get_current_tabpage()
+  same(tab_attention(unrelated_tab), true, "a new tabpage should inherit the attentive global cwd")
+  vim.cmd("tcd " .. vim.fn.fnameescape(unrelated_dir))
+  same(tab_attention(unrelated_tab), false, "moving a tabpage to another cwd should clear it")
+  same(tab_attention(main_tab), true, "an unrelated tabpage change should not clear associated tabs")
+  same(tab_attention(shared_tab), true, "every tabpage still sharing the cwd should remain marked")
+
+  vim.api.nvim_set_current_tabpage(shared_tab)
+  vim.cmd("lcd " .. vim.fn.fnameescape(unrelated_dir))
+  same(tab_attention(shared_tab), true, "window-local cwd changes should not affect association")
+  vim.cmd("lcd " .. vim.fn.fnameescape(attentive_dir))
+  vim.cmd("tcd " .. vim.fn.fnameescape(unrelated_dir))
+  same(tab_attention(shared_tab), false, "a tabpage-local cwd change should recompute association")
+  vim.cmd("tcd " .. vim.fn.fnameescape(attentive_dir))
+  same(tab_attention(shared_tab), true, "moving a tabpage back should restore attention")
+
+  vim.api.nvim_set_current_tabpage(main_tab)
+  cd(unrelated_dir)
+  same(tab_attention(main_tab), false, "a global cwd change should update tabs without a local cwd")
+  same(tab_attention(shared_tab), true, "a tabpage-local cwd should be independent of the global cwd")
+  cd(attentive_dir)
+  same(tab_attention(main_tab), true, "restoring the global cwd should restore association")
+
+  vim.api.nvim_set_current_tabpage(unrelated_tab)
+  vim.cmd("tabclose")
+  vim.api.nvim_set_current_tabpage(shared_tab)
+  vim.cmd("tabclose")
+  vim.api.nvim_set_current_tabpage(main_tab)
+  background:exit(0)
+  same(tab_attention(main_tab), false, "removing the attentive terminal should clear remaining tabs")
 end)
 
 test("renders argv and shell terminal winbar titles", function()

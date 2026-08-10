@@ -199,6 +199,13 @@ terminal clears it, and notifications emitted while the terminal is focused
 are ignored. OSC 9;4 progress sequences and unrelated terminal requests do not
 set the mark. Notification text is not retained.
 
+The plugin also owns the boolean tabpage variable `t:attention` for custom
+tablines. It is `true` when at least one valid managed terminal for the
+tabpage's normalized working directory has unread attention, across all
+terminal positions, and `false` otherwise. Tabpage-local `:tcd` directories
+take precedence over the global directory; window-local `:lcd` directories are
+ignored. Tabs that share a directory share its aggregate attention state.
+
 Intentional closes through `close()`, `:TermClose`, or the default `<D-w>`
 mapping are silent. A command that exits unsuccessfully still reports its exit
 status and keeps the terminal open for inspection; a successful exit closes it.

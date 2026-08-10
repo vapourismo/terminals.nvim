@@ -90,6 +90,36 @@ local function win_valid(terminal)
   return ok and valid == true
 end
 
+local function synchronize_tab_attention()
+  local attentive_directories = {}
+  for _, position_groups in pairs(registry) do
+    for cwd, group in pairs(position_groups) do
+      for _, entry in ipairs(group.terminals) do
+        if entry.attention and not entry.removed and buf_valid(entry.terminal) then
+          attentive_directories[cwd] = true
+          break
+        end
+      end
+    end
+  end
+
+  local changed = false
+  for _, tabpage in ipairs(vim.api.nvim_list_tabpages()) do
+    local tabnr = vim.api.nvim_tabpage_get_number(tabpage)
+    local ok, cwd = pcall(vim.fn.getcwd, -1, tabnr)
+    local attention = ok and attentive_directories[normalize_path(cwd)] == true
+    local current_ok, current = pcall(vim.api.nvim_tabpage_get_var, tabpage, "attention")
+    if not current_ok or current ~= attention then
+      vim.api.nvim_tabpage_set_var(tabpage, "attention", attention)
+      changed = true
+    end
+  end
+
+  if changed then
+    vim.cmd.redrawtabline()
+  end
+end
+
 ---@param position string
 ---@return boolean
 local function is_side(position)
@@ -165,12 +195,19 @@ local function prune(cwd, position)
   local selected = group.terminals[group.active]
   local old_active = group.active
   local terminals = {}
+  local pruned_attention = false
   for _, entry in ipairs(group.terminals) do
     if not entry.removed and buf_valid(entry.terminal) then
       terminals[#terminals + 1] = entry
     else
+      pruned_attention = pruned_attention or entry.attention
       entry.removed = true
     end
+  end
+
+  if pruned_attention then
+    synchronize_tab_attention()
+    vim.cmd.redrawstatus()
   end
 
   if #terminals == 0 then
@@ -226,6 +263,10 @@ local function remove_entry(entry, select_fallback)
     return nil, false
   end
   entry.removed = true
+  if entry.attention then
+    synchronize_tab_attention()
+    vim.cmd.redrawstatus()
+  end
 
   local position_groups = registry[entry.position]
   local group = position_groups and position_groups[entry.cwd] or nil
@@ -315,6 +356,15 @@ local function hide_departed_float(previous, next_position)
 end
 
 ---@param entry terminals.Entry
+local function clear_attention(entry)
+  if entry.attention then
+    entry.attention = false
+    synchronize_tab_attention()
+    vim.cmd.redrawstatus()
+  end
+end
+
+---@param entry terminals.Entry
 local function focus(entry)
   local previous = focused_entry()
   without_winleave(function()
@@ -324,6 +374,7 @@ local function focus(entry)
     entry.terminal:focus()
   end)
   hide_departed_float(previous, entry.position)
+  clear_attention(entry)
   return entry.terminal
 end
 
@@ -332,14 +383,6 @@ end
 local function entry_focused(entry)
   return entry.terminal.win == vim.api.nvim_get_current_win()
     and entry.terminal.buf == vim.api.nvim_get_current_buf()
-end
-
----@param entry terminals.Entry
-local function clear_attention(entry)
-  if entry.attention then
-    entry.attention = false
-    vim.cmd.redrawstatus()
-  end
 end
 
 ---@return terminals.Entry?
@@ -587,6 +630,7 @@ local function attach(entry)
 
       if not entry.attention then
         entry.attention = true
+        synchronize_tab_attention()
         vim.cmd.redrawstatus()
       end
     end,
@@ -692,6 +736,12 @@ local function attach(entry)
     end,
   })
 end
+
+vim.api.nvim_create_autocmd({ "TabNew", "DirChanged" }, {
+  group = lifecycle_group,
+  callback = synchronize_tab_attention,
+})
+synchronize_tab_attention()
 
 ---Configure terminals created after this call.
 ---@param opts? terminals.Config

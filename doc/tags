@@ -8,6 +8,7 @@ TermNew	terminals.txt	/*TermNew*
 TermNext	terminals.txt	/*TermNext*
 TermPrev	terminals.txt	/*TermPrev*
 TermToggle	terminals.txt	/*TermToggle*
+t:attention	terminals.txt	/*t:attention*
 terminals-api	terminals.txt	/*terminals-api*
 terminals-behavior	terminals.txt	/*terminals-behavior*
 terminals-commands	terminals.txt	/*terminals-commands*
@@ -15,6 +16,7 @@ terminals-contents	terminals.txt	/*terminals-contents*
 terminals-introduction	terminals.txt	/*terminals-introduction*
 terminals-requirements	terminals.txt	/*terminals-requirements*
 terminals-setup	terminals.txt	/*terminals-setup*
+terminals-t-attention	terminals.txt	/*terminals-t-attention*
 terminals.close()	terminals.txt	/*terminals.close()*
 terminals.new()	terminals.txt	/*terminals.new()*
 terminals.next()	terminals.txt	/*terminals.next()*
