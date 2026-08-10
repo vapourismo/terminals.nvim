@@ -7,7 +7,6 @@ local function pack(...)
 end
 
 ---@class terminals.Config
----@field width? integer
 ---@field win? table<string, any>
 
 ---@class terminals.NewOptions
@@ -36,7 +35,6 @@ end
 ---@field active integer
 
 local defaults = {
-  width = 220,
   win = {
     position = "float",
   },
@@ -443,7 +441,6 @@ local function window_options(position)
   local user_win = config.win or {}
   return vim.tbl_deep_extend("force", {}, user_win, {
     position = position,
-    width = config.width,
     wo = {
       foldenable = false,
       foldmethod = "manual",

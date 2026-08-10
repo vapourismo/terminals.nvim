@@ -40,20 +40,19 @@ SETUP                                                      *terminals-setup*
 Setup is optional. The defaults are: >lua
 
     require("terminals").setup({
-      width = 220,
       win = {
         position = "float",
       },
     })
 <
 
-`width` is the window width in characters. Snacks clamps it when necessary.
 `win` accepts additional snacks.win options. `win.position` is the default
 position and may be "float", "top", "bottom", "left", or "right". Snacks'
 buffer-replacing "current" position is not part of the supported contract.
-The shared width and other options affect terminals created after setup;
-existing terminal objects retain their resolved position and original options.
-Position-appropriate Snacks options such as `height` may also be supplied.
+Configure dimensions such as `width` and `height` inside `win` when needed for
+the chosen position; otherwise Snacks chooses them. Configuration affects
+terminals created after setup; existing terminal objects retain their resolved
+position and original options.
 
 New managed terminals have these buffer-local mappings in both Normal and
 Terminal modes:
@@ -87,11 +86,10 @@ installing a global mapping. For example: >lua
 
 Unrelated custom `win.keys` entries are preserved. The following invariants
 are applied last and cannot be overridden: the resolved creation position,
-configured width, disabled folding with manual fold method, the managed
-`win.wo.winbar` expression, and no Normal-mode q mapping. A per-call position
-wins over `win.position`. A user-provided `win.wo.winbar` is replaced. Escape
-handling uses the Snacks defaults; terminals.nvim does not supply Escape
-mappings.
+disabled folding with manual fold method, the managed `win.wo.winbar`
+expression, and no Normal-mode q mapping. A per-call position wins over
+`win.position`. A user-provided `win.wo.winbar` is replaced. Escape handling
+uses the Snacks defaults; terminals.nvim does not supply Escape mappings.
 
 ==============================================================================
 COMMANDS                                                *terminals-commands*
@@ -128,9 +126,9 @@ COMMANDS                                                *terminals-commands*
 LUA API                                                    *terminals-api*
 
 setup({opts})                                     *terminals.setup()*
-    Configure terminals created in the future. {opts.width} is an integer and
-    {opts.win} is a table of Snacks window options. {opts.win.position} sets
-    the default position. Returns nothing.
+    Configure terminals created in the future. {opts.win} is a table of Snacks
+    window options, including dimensions such as width and height.
+    {opts.win.position} sets the default position. Returns nothing.
 
 new({cmd}, {opts})                                   *terminals.new()*
     Create and select a terminal. Focus it when its resolved directory matches

@@ -980,7 +980,7 @@ test("merges window options and enforces terminal invariants", function()
   cd(dir)
   terminals.setup()
   local existing = terminals.new("defaults")
-  same(existing.opts.win.width, 220, "default width")
+  same(existing.opts.win.width, nil, "width should be left to Snacks by default")
 
   local on_win = function() end
   local custom_new = { "N", function() end, mode = "n", desc = "Custom new" }
@@ -988,10 +988,10 @@ test("merges window options and enforces terminal invariants", function()
   local custom_prev = { "P", function() end, mode = { "n", "t" }, desc = "Custom previous" }
   local custom_next = { "X", function() end, mode = { "n", "t" }, desc = "Custom next" }
   terminals.setup({
-    width = 91,
     win = {
       border = "double",
       height = 0.6,
+      width = 91,
       position = "bottom",
       on_win = on_win,
       wo = {
@@ -1015,9 +1015,9 @@ test("merges window options and enforces terminal invariants", function()
 
   local terminal = terminals.new("configured", { position = "bottom" })
   local win = terminal.opts.win
-  same(existing.opts.win.width, 220, "setup should not mutate existing terminal options")
+  same(existing.opts.win.width, nil, "setup should not mutate existing terminal options")
   same(win.position, "bottom", "the resolved position should be enforced")
-  same(win.width, 91, "configured character width should be enforced")
+  same(win.width, 91, "Snacks window width should survive")
   same(win.border, "double", "additional window options should survive")
   same(win.height, 0.6, "additional dimensions should survive")
   same(win.on_win, on_win, "callbacks should survive option merging")

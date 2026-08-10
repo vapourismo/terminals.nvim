@@ -40,22 +40,21 @@ Setup is optional. These are the defaults:
 
 ```lua
 require("terminals").setup({
-  width = 220,
   win = {
     position = "float",
   },
 })
 ```
 
-`width` is a character width (Snacks clamps it when the editor is narrower).
 `win` accepts additional
 [`snacks.win`](https://github.com/folke/snacks.nvim/blob/main/docs/win.md)
 options. `win.position` sets the default position and may be `float`, `top`,
 `bottom`, `left`, or `right`. The Snacks buffer-replacing `current` position is
 not part of this plugin's supported contract. Configuration affects terminals
 created after `setup()`; existing terminal objects keep their resolved position
-and other original options. `width` remains shared across positions; other
-Snacks options such as `height` may be supplied for the chosen position.
+and other original options. Configure dimensions such as `width` and `height`
+inside `win` when needed for the chosen position; otherwise Snacks chooses
+them.
 
 Every newly created managed terminal has these buffer-local mappings in both
 Normal and Terminal modes:
@@ -89,13 +88,12 @@ require("terminals").setup({
 ```
 
 Unrelated custom `win.keys` entries are preserved. The manager applies its
-required window behavior last: the resolved position, the configured width,
-manual folding with folding disabled, its managed `win.wo.winbar` expression,
-and no Normal-mode `q` mapping. A per-call position takes precedence over
-`win.position`. Escape handling uses the Snacks defaults; `terminals.nvim` does
-not supply Escape mappings. These enforced window options and the disabled `q`
-mapping cannot be overridden; in particular, a user-provided `win.wo.winbar`
-is replaced.
+required window behavior last: the resolved position, manual folding with
+folding disabled, its managed `win.wo.winbar` expression, and no Normal-mode
+`q` mapping. A per-call position takes precedence over `win.position`. Escape
+handling uses the Snacks defaults; `terminals.nvim` does not supply Escape
+mappings. These enforced window options and the disabled `q` mapping cannot be
+overridden; in particular, a user-provided `win.wo.winbar` is replaced.
 
 ## Commands
 
