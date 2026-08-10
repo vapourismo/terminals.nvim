@@ -32,7 +32,7 @@ end
 ---@field hiding boolean
 ---@field intentional_close boolean
 ---@field removed boolean
----@field focused_before_wipe boolean
+---@field focused_before_leave boolean
 
 ---@class terminals.Group
 ---@field terminals terminals.Entry[]
@@ -459,6 +459,14 @@ end
 local function entry_focused(entry)
   return entry.terminal.win == vim.api.nvim_get_current_win()
     and entry.terminal.buf == vim.api.nvim_get_current_buf()
+end
+
+---@param entry terminals.Entry
+---@return boolean
+local function consume_departing_focus(entry)
+  local was_focused = entry.focused_before_leave or entry_focused(entry)
+  entry.focused_before_leave = false
+  return was_focused
 end
 
 ---@return terminals.Entry?
@@ -943,7 +951,7 @@ local function attach(entry)
         return
       end
 
-      local was_focused = entry_focused(entry)
+      local was_focused = consume_departing_focus(entry)
       local was_visible = win_valid(terminal)
       local replace_visible_edge = was_visible and is_split(entry.position)
       remember_side_width(entry.position, terminal)
@@ -965,16 +973,16 @@ local function attach(entry)
     buffer = terminal.buf,
     callback = function()
       remember_side_width(entry.position, terminal)
-      -- BufWipeout runs after Neovim invalidates the terminal window, so retain
-      -- whether its buffer was current while it is still leaving that window.
-      entry.focused_before_wipe = suppress_winleave == 0
+      -- TermClose and BufWipeout can run after Neovim invalidates the terminal
+      -- window, so retain whether its buffer was current while it is leaving.
+      entry.focused_before_leave = suppress_winleave == 0
         and not entry.hiding
         and not entry.removed
         and terminal.buf == vim.api.nvim_get_current_buf()
 
-      -- A later wipe of an already hidden buffer must not reuse this state.
+      -- A later lifecycle event for an already hidden buffer must not reuse it.
       vim.schedule(function()
-        entry.focused_before_wipe = false
+        entry.focused_before_leave = false
       end)
     end,
   })
@@ -983,8 +991,7 @@ local function attach(entry)
     group = lifecycle_group,
     buffer = terminal.buf,
     callback = function()
-      local was_focused = entry.focused_before_wipe or entry_focused(entry)
-      entry.focused_before_wipe = false
+      local was_focused = consume_departing_focus(entry)
       local fallback, removed = remove_entry(entry, was_focused)
       if removed and was_focused then
         -- Window changes are unsafe until the wipe autocmd has completed.
@@ -1085,7 +1092,7 @@ function M.new(cmd, opts)
     hiding = false,
     intentional_close = false,
     removed = false,
-    focused_before_wipe = false,
+    focused_before_leave = false,
   }
   group.terminals[#group.terminals + 1] = entry
   group.active = #group.terminals
