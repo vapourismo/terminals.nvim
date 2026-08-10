@@ -1057,6 +1057,39 @@ test("merges window options and enforces terminal invariants", function()
   same(disabled.term_escape, nil, "no additional Escape mapping should be supplied")
 end)
 
+test("keeps side terminal widths resizable", function()
+  local dir = directory("resizable-side-widths")
+  cd(dir)
+  terminals.setup({
+    win = {
+      width = 27,
+      wo = {
+        winfixwidth = true,
+      },
+    },
+  })
+
+  for _, position in ipairs({ "left", "right" }) do
+    local terminal = terminals.new(position, { position = position })
+    same(terminal.opts.win.width, 27, position .. " width should reach Snacks")
+    same(terminal.opts.win.wo.winfixwidth, false, position .. " should override a fixed user width")
+    same(
+      vim.api.nvim_get_option_value("winfixwidth", { win = terminal.win }),
+      false,
+      position .. " Neovim window should remain resizable"
+    )
+  end
+
+  for _, position in ipairs({ "float", "top", "bottom" }) do
+    local terminal = terminals.new(position, { position = position })
+    same(
+      terminal.opts.win.wo.winfixwidth,
+      true,
+      position .. " should preserve the user-provided winfixwidth"
+    )
+  end
+end)
+
 pcall(vim.api.nvim_set_current_win, main_win)
 pcall(cd, original_cwd)
 stub.reset()

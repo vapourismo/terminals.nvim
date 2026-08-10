@@ -439,13 +439,17 @@ end
 ---@param position string
 local function window_options(position)
   local user_win = config.win or {}
+  local enforced_wo = {
+    foldenable = false,
+    foldmethod = "manual",
+    winbar = winbar_expression,
+  }
+  if position == "left" or position == "right" then
+    enforced_wo.winfixwidth = false
+  end
   return vim.tbl_deep_extend("force", {}, user_win, {
     position = position,
-    wo = {
-      foldenable = false,
-      foldmethod = "manual",
-      winbar = winbar_expression,
-    },
+    wo = enforced_wo,
     keys = vim.tbl_deep_extend(
       "force",
       terminal_action_keys(),

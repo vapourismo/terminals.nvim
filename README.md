@@ -90,7 +90,9 @@ require("terminals").setup({
 Unrelated custom `win.keys` entries are preserved. The manager applies its
 required window behavior last: the resolved position, manual folding with
 folding disabled, its managed `win.wo.winbar` expression, and no Normal-mode
-`q` mapping. A per-call position takes precedence over `win.position`. Escape
+`q` mapping. Left and right terminals also enforce `win.wo.winfixwidth = false`,
+so a configured `win.width` sets their initial width without preventing later
+resizing. A per-call position takes precedence over `win.position`. Escape
 handling uses the Snacks defaults; `terminals.nvim` does not supply Escape
 mappings. These enforced window options and the disabled `q` mapping cannot be
 overridden; in particular, a user-provided `win.wo.winbar` is replaced.
