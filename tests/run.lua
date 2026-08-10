@@ -94,14 +94,76 @@ local function highlight_spans(result)
   end, result.highlights)
 end
 
+local function source_buffer(dir, name, lines)
+  local path = dir .. "/" .. name
+  local buf = vim.api.nvim_create_buf(true, false)
+  vim.api.nvim_buf_set_name(buf, path)
+  vim.api.nvim_buf_set_lines(buf, 0, -1, true, lines)
+  vim.api.nvim_win_set_buf(main_win, buf)
+  return buf, path
+end
+
+local function select_visual(buf, mode, start_line, start_col, end_line, end_col)
+  vim.api.nvim_set_current_win(main_win)
+  vim.api.nvim_win_set_buf(main_win, buf)
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", true, false, true), "nx", false)
+  vim.api.nvim_win_set_cursor(main_win, { start_line, start_col - 1 })
+  vim.cmd.normal({ args = { mode }, bang = true })
+  vim.api.nvim_win_set_cursor(main_win, { end_line, end_col - 1 })
+  same(vim.fn.mode(1), mode, "the test selection should remain active")
+end
+
+local function with_channel_mocks(channels, callback, send_impl)
+  local get_option_value = vim.api.nvim_get_option_value
+  local chan_send = vim.api.nvim_chan_send
+  local sent = {}
+  vim.api.nvim_get_option_value = function(name, opts)
+    if name == "channel" and opts and opts.buf then
+      return channels[opts.buf]
+    end
+    return get_option_value(name, opts)
+  end
+  vim.api.nvim_chan_send = send_impl or function(channel, data)
+    sent[#sent + 1] = { channel = channel, data = data }
+  end
+
+  local ok, err = xpcall(function()
+    callback(sent)
+  end, debug.traceback)
+  vim.api.nvim_get_option_value = get_option_value
+  vim.api.nvim_chan_send = chan_send
+  if not ok then
+    error(err, 0)
+  end
+end
+
 test("registers commands and forwards command forms", function()
   vim.cmd("runtime plugin/terminals.lua")
   local commands = vim.api.nvim_get_commands({ builtin = false })
-  for _, name in ipairs({ "TermNew", "TermClose", "TermPrev", "TermNext", "TermToggle" }) do
+  for _, name in ipairs({ "TermNew", "TermClose", "TermPrev", "TermNext", "TermToggle", "TermSend" }) do
     truthy(commands[name], name .. " should be registered")
   end
   same(commands.TermNew.nargs, "*", "TermNew should accept optional arguments")
   same(commands.TermNew.complete, "shellcmd", "TermNew should use shell command completion")
+  same(commands.TermSend.nargs, "?", "TermSend should accept an optional position")
+  same(commands.TermSend.range, ".", "TermSend should accept a Visual range")
+  same(
+    vim.fn.getcompletion("TermSend ", "cmdline"),
+    { "float", "top", "bottom", "left", "right" },
+    "TermSend should complete supported positions"
+  )
+
+  local send_calls = {}
+  local send = terminals.send
+  terminals.send = function(options)
+    send_calls[#send_calls + 1] = options
+  end
+  vim.cmd("1,1TermSend")
+  vim.cmd("1,1TermSend left")
+  terminals.send = send
+  same(send_calls[1].position, nil, "empty TermSend should forward no position")
+  same(send_calls[1]._command.range, 2, "TermSend should forward its command range")
+  same(send_calls[2].position, "left", "TermSend should forward an explicit position")
 
   local before = #stub.opened
   vim.cmd("TermNew")
@@ -116,6 +178,155 @@ test("registers commands and forwards command forms", function()
   local first_count = stub.opened[before + 1].opts.count
   same(stub.opened[before + 2].opts.count, first_count + 1, "terminal counts should be unique")
   same(stub.opened[before + 3].opts.count, first_count + 2, "terminal counts should increase by creation")
+end)
+
+test("formats Visual locations with line and byte-column ranges", function()
+  local dir = directory("send-formatting")
+  cd(dir)
+  terminals.setup()
+  local terminal = terminals.new("target", { position = "left" })
+  local buf = source_buffer(dir, "source.lua", { "alpha", "bravo xyz", "aé中z", "last" })
+
+  with_channel_mocks({ [terminal.buf] = 101 }, function(sent)
+    local cases = {
+      { "V", 2, 1, 2, 1, "source.lua:2" },
+      { "V", 1, 1, 3, 1, "source.lua:1-3" },
+      { "v", 2, 2, 2, 5, "source.lua:2:2-2:5" },
+      { "v", 2, 5, 2, 2, "source.lua:2:2-2:5" },
+      { "v", 3, 2, 3, 4, "source.lua:3:2-3:4" },
+      { "v", 1, 1, 1, 5, "source.lua:1" },
+      { "v", 1, 2, 2, 5, "source.lua:1:2-2:5" },
+      { "v", 1, 1, 2, 9, "source.lua:1-2" },
+    }
+    for index, case in ipairs(cases) do
+      select_visual(buf, case[1], case[2], case[3], case[4], case[5])
+      same(terminals.send({ position = "left" }), terminal, "a formatted reference should return its target")
+      same(sent[index], { channel = 101, data = case[6] }, "formatted Visual reference " .. index)
+      current_is(terminal)
+    end
+  end)
+  terminal:hide()
+end)
+
+test("captures the command Visual range before focusing its target", function()
+  local dir = directory("send-command")
+  cd(dir)
+  local terminal = terminals.new("target", { position = "right" })
+  local buf = source_buffer(dir, "command.lua", { "abcdef", "second" })
+  select_visual(buf, "v", 1, 2, 2, 3)
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", true, false, true), "nx", false)
+
+  with_channel_mocks({ [terminal.buf] = 102 }, function(sent)
+    vim.cmd("'<,'>TermSend right")
+    same(sent, {
+      { channel = 102, data = "command.lua:1:2-2:3" },
+    }, "the command should retain characterwise columns after leaving Visual mode")
+    current_is(terminal)
+  end)
+  terminal:hide()
+end)
+
+test("targets visible, hidden, and empty position groups for delivery", function()
+  local terminal_dir = directory("send-target-terminal")
+  local source_dir = directory("send-target-source")
+  cd(terminal_dir)
+  local other_cwd = terminals.new("other-cwd", { position = "left" })
+  cd(source_dir)
+  local buf = source_buffer(source_dir, "target.lua", { "one", "two" })
+
+  with_channel_mocks(setmetatable({ [other_cwd.buf] = 201 }, { __index = function()
+    return 299
+  end }), function(sent)
+    select_visual(buf, "V", 1, 1, 1, 1)
+    same(terminals.send(), other_cwd, "one visible terminal should be the default target across cwd scopes")
+    same(sent[1], { channel = 201, data = "../send-target-source/target.lua:1" }, "the path should be relative to the target terminal cwd")
+    current_is(other_cwd)
+
+    other_cwd:hide()
+    local opened = #stub.opened
+    select_visual(buf, "V", 1, 1, 1, 1)
+    same(terminals.send(), nil, "no visible default target should fail")
+    same(#stub.opened, opened, "default delivery should not create a terminal")
+    same(stub.notifications[#stub.notifications], "No open managed terminal exists; specify a position to open one.", "the missing default target should notify")
+
+    local left = terminals.new("left", { position = "left" })
+    local right = terminals.new("right", { position = "right" })
+    select_visual(buf, "V", 1, 1, 2, 1)
+    same(terminals.send(), nil, "multiple visible positions should be ambiguous")
+    same(stub.notifications[#stub.notifications], "Multiple open managed terminals exist; specify a position.", "ambiguity should notify")
+    same(vim.api.nvim_get_current_win(), main_win, "ambiguous delivery should not move focus")
+
+    select_visual(buf, "v", 1, 2, 1, 2)
+    same(terminals.send({ position = "right" }), right, "an explicit position should select among visible terminals")
+    same(sent[#sent], { channel = 299, data = "target.lua:1:2-1:2" }, "explicit visible delivery payload")
+    current_is(right)
+
+    left:hide()
+    right:hide()
+    opened = #stub.opened
+    select_visual(buf, "V", 2, 1, 2, 1)
+    same(terminals.send({ position = "left" }), left, "an explicit position should reopen its hidden active terminal")
+    same(#stub.opened, opened, "reopening a hidden group should not create a terminal")
+    current_is(left)
+
+    left:hide()
+    opened = #stub.opened
+    select_visual(buf, "V", 2, 1, 2, 1)
+    local created = terminals.send({ position = "top" })
+    same(created, stub.opened[#stub.opened], "an empty explicit position should return its created terminal")
+    same(#stub.opened, opened + 1, "an empty explicit position should create one terminal")
+    same(created.cmd, nil, "an empty group should create a shell terminal")
+    same(created.opts.cwd, source_dir, "the created target should use the applicable cwd")
+    same(created.opts.win.position, "top", "the created target should use the requested position")
+    same(sent[#sent], { channel = 299, data = "target.lua:2" }, "created terminal delivery payload")
+    current_is(created)
+    created:hide()
+  end)
+end)
+
+test("rejects invalid selections and reports channel delivery failures", function()
+  local dir = directory("send-errors")
+  cd(dir)
+  local terminal = terminals.new("target", { position = "bottom" })
+  local buf = source_buffer(dir, "errors.lua", { "alpha", "beta" })
+
+  select_visual(buf, "v", 1, 1, 1, 2)
+  same(terminals.send({ position = "diagonal" }), nil, "an unsupported position should fail")
+  same(stub.notifications[#stub.notifications], "Invalid terminal position: diagonal.", "an invalid position should notify")
+
+  local unnamed = vim.api.nvim_create_buf(true, false)
+  vim.api.nvim_buf_set_lines(unnamed, 0, -1, true, { "unnamed" })
+  select_visual(unnamed, "v", 1, 1, 1, 2)
+  same(terminals.send({ position = "bottom" }), nil, "an unnamed selection should fail")
+  same(stub.notifications[#stub.notifications], "Visual selection must be in a named buffer.", "an unnamed buffer should notify")
+
+  select_visual(buf, "\22", 1, 1, 2, 2)
+  same(terminals.send({ position = "bottom" }), nil, "a blockwise selection should fail")
+  same(stub.notifications[#stub.notifications], "Blockwise Visual selections are not supported.", "a blockwise selection should notify")
+
+  select_visual(buf, "v", 1, 1, 1, 2)
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", true, false, true), "nx", false)
+  vim.fn.setpos("'<", { 0, 0, 0, 0 })
+  vim.fn.setpos("'>", { 0, 0, 0, 0 })
+  same(terminals.send({ position = "bottom", _command = { range = 2, line1 = 0, line2 = 0 } }), nil, "invalid Visual marks should fail")
+  same(stub.notifications[#stub.notifications], "Visual selection is missing or invalid.", "invalid marks should notify")
+
+  select_visual(buf, "V", 1, 1, 1, 1)
+  with_channel_mocks({ [terminal.buf] = 0 }, function()
+    same(terminals.send({ position = "bottom" }), nil, "an invalid terminal channel should fail")
+    same(stub.notifications[#stub.notifications], "Managed terminal has no valid channel.", "an invalid channel should notify")
+    current_is(terminal)
+  end)
+
+  select_visual(buf, "V", 2, 1, 2, 1)
+  with_channel_mocks({ [terminal.buf] = 301 }, function()
+    same(terminals.send({ position = "bottom" }), nil, "a channel send error should fail")
+    same(stub.notifications[#stub.notifications], "Failed to send reference to managed terminal: test send failure", "a send failure should notify")
+    current_is(terminal)
+  end, function()
+    error("test send failure", 0)
+  end)
+  terminal:hide()
 end)
 
 test("silences intentional closes from the API, command, and mapping", function()

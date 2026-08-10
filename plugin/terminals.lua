@@ -26,3 +26,21 @@ end, { desc = "Select the next terminal" })
 vim.api.nvim_create_user_command("TermToggle", function()
   require("terminals").toggle()
 end, { desc = "Toggle the selected terminal" })
+
+local positions = { "float", "top", "bottom", "left", "right" }
+
+vim.api.nvim_create_user_command("TermSend", function(options)
+  require("terminals").send({
+    position = options.args ~= "" and options.args or nil,
+    _command = options,
+  })
+end, {
+  nargs = "?",
+  range = true,
+  complete = function(arg_lead)
+    return vim.tbl_filter(function(position)
+      return position:sub(1, #arg_lead) == arg_lead
+    end, positions)
+  end,
+  desc = "Insert the Visual selection location into a managed terminal",
+})

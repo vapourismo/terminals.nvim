@@ -113,10 +113,18 @@ replaced.
 | `:TermPrev` | `.prev(opts?)` | Circularly select the previous terminal for the applicable `(cwd, position)` group. |
 | `:TermNext` | `.next(opts?)` | Circularly select the next terminal for the applicable `(cwd, position)` group. |
 | `:TermToggle` | `.toggle(opts?)` | Hide/show the selected terminal for the applicable group, creating a shell terminal if it is empty. |
+| `:'<,'>TermSend [position]` | `.send(opts?)` | Focus a managed terminal and insert the Visual selection's file location without submitting it. |
 
 `TermNew` forwards its command-line arguments as one shell string and provides
 shell-command completion. Passing no command creates a terminal using the shell
 configured by Snacks.
+
+`TermSend` is a Visual-mode command with one optional position: `float`, `top`,
+`bottom`, `left`, or `right`. For example, select code and run `:TermSend right`.
+It captures characterwise or linewise selection marks before terminal focus
+changes, focuses the resolved target, and inserts the location through the
+terminal buffer's channel. It sends no newline, so the reference remains in the
+terminal input for editing.
 
 The Lua API accepts a persistent winbar title, working directory, and position
 at creation time:
@@ -166,10 +174,39 @@ the configured default outside one. Their directory is always the focused
 managed terminal's directory or Neovim's current directory outside one. The
 argument-free commands use this same implicit resolution.
 
+`send()` accepts the same optional position shape:
+
+```lua
+require("terminals").send({ position = "right" })
+```
+
+Call the Lua API while a characterwise or linewise Visual selection is active.
+With no position, it considers every managed terminal that currently has a
+valid window, regardless of cwd or focus. Exactly one visible terminal is used;
+zero candidates report an error without creating a terminal, and multiple
+candidates require an explicit position. With a position, an already visible
+terminal there wins even when it belongs to another cwd. Otherwise `send()`
+restores the active terminal from the applicable `(cwd, position)` group, or
+creates a shell terminal when that group is empty.
+
+The location is relative to the selected terminal's cwd and uses 1-based byte
+columns with inclusive endpoints:
+
+```text
+path:line
+path:start_line-end_line
+path:start_line:start_col-end_line:end_col
+```
+
+A characterwise selection that covers complete lines uses the shorter line
+form. Reversed selections are normalized. A path outside the terminal cwd may
+start with `../`.
+
 The Lua functions return the selected Snacks terminal object. `close()`,
 `prev()`, and `next()` return `nil` when there is no applicable managed
 terminal. A targeted `toggle()` creates a shell terminal when that exact scope
-is empty. `setup()` has no return value.
+is empty. `send()` returns the focused terminal after a successful channel
+write, and `nil` after an error. `setup()` has no return value.
 
 At most one managed terminal is shown per position. Selecting another terminal
 hides only the visible terminal at that position, so edge splits at other
@@ -216,5 +253,11 @@ instead. A fallback is never selected from another directory or position.
 Removing a background terminal does not change focus, and removing the group's
 only terminal leaves focus in Neovim's remaining window without creating a
 replacement.
+
+`TermSend` and `send()` reject blockwise selections, missing or stale Visual
+marks, and unnamed buffers. They also report incompatible filesystem roots, an
+invalid or unavailable terminal channel, and channel write failures. Invalid
+positions are rejected. Selection and targeting errors do not write any input;
+channel errors are reported after the resolved terminal has been focused.
 
 See `:help terminals.nvim` for the full help file.

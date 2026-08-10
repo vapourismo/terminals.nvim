@@ -17,6 +17,10 @@ end
 ---@class terminals.ScopeOptions
 ---@field position? string
 
+---@class terminals.SendOptions
+---@field position? string
+---@field _command? table
+
 ---@class terminals.Entry
 ---@field cwd string
 ---@field position string
@@ -39,6 +43,12 @@ local defaults = {
     position = "float",
   },
 }
+
+local positions = { "float", "top", "bottom", "left", "right" }
+local valid_positions = {}
+for _, position in ipairs(positions) do
+  valid_positions[position] = true
+end
 
 ---@type terminals.Config
 local config = vim.deepcopy(defaults)
@@ -76,6 +86,72 @@ end
 local function path_is_absolute(path)
   return path:sub(1, 1) == "/"
     or (vim.fn.has("win32") == 1 and path:match("^%a:[/\\]") ~= nil)
+end
+
+---@param path string
+---@return string?, string[]?
+local function path_root_and_parts(path)
+  path = path:gsub("\\", "/")
+
+  local root
+  local rest
+  local server, share, unc_rest = path:match("^//([^/]+)/([^/]+)(.*)$")
+  if server and share then
+    root = "//" .. server .. "/" .. share
+    rest = unc_rest
+  else
+    local drive, drive_rest = path:match("^([A-Za-z]:)(.*)$")
+    if drive then
+      root = drive:lower()
+      rest = drive_rest
+    elseif path:sub(1, 1) == "/" then
+      root = "/"
+      rest = path:sub(2)
+    else
+      return nil, nil
+    end
+  end
+
+  local parts = {}
+  for part in rest:gmatch("[^/]+") do
+    parts[#parts + 1] = part
+  end
+  return root, parts
+end
+
+---@param cwd string
+---@param path string
+---@return string?
+local function relative_path(cwd, path)
+  local cwd_root, cwd_parts = path_root_and_parts(cwd)
+  local path_root, path_parts = path_root_and_parts(path)
+  if not cwd_root or not path_root or cwd_root:lower() ~= path_root:lower() then
+    return nil
+  end
+
+  local case_insensitive = cwd_root ~= "/"
+  local common = 0
+  while common < #cwd_parts and common < #path_parts do
+    local cwd_part = cwd_parts[common + 1]
+    local path_part = path_parts[common + 1]
+    if case_insensitive then
+      cwd_part = cwd_part:lower()
+      path_part = path_part:lower()
+    end
+    if cwd_part ~= path_part then
+      break
+    end
+    common = common + 1
+  end
+
+  local parts = {}
+  for _ = common + 1, #cwd_parts do
+    parts[#parts + 1] = ".."
+  end
+  for index = common + 1, #path_parts do
+    parts[#parts + 1] = path_parts[index]
+  end
+  return #parts == 0 and "." or table.concat(parts, "/")
 end
 
 ---@param terminal snacks.terminal
@@ -609,6 +685,179 @@ local function snacks()
   return module
 end
 
+---@param message string
+local function notify_error(message)
+  snacks().notify.error(message)
+end
+
+---@param buf integer
+---@param position table
+---@param linewise boolean
+---@return table?
+local function selection_position(buf, position, linewise)
+  if type(position) ~= "table" then
+    return nil
+  end
+
+  local position_buf = tonumber(position[1])
+  local line = tonumber(position[2])
+  local column = tonumber(position[3])
+  if
+    not position_buf
+    or (position_buf ~= 0 and position_buf ~= buf)
+    or not line
+    or line < 1
+    or line > vim.api.nvim_buf_line_count(buf)
+  then
+    return nil
+  end
+
+  if linewise then
+    return { line = line, column = 1 }
+  end
+  if not column or column < 1 then
+    return nil
+  end
+
+  local text = vim.api.nvim_buf_get_lines(buf, line - 1, line, true)[1]
+  if text == nil then
+    return nil
+  end
+  local max_column = math.max(#text, 1)
+  if column == vim.v.maxcol then
+    column = max_column
+  elseif column > max_column then
+    return nil
+  end
+  return { line = line, column = column, line_length = #text }
+end
+
+---@param command? table
+---@return table?
+local function visual_selection(command)
+  local mode
+  local start_position
+  local end_position
+  if command then
+    if command.range ~= 2 then
+      notify_error("TermSend must be called from Visual mode.")
+      return nil
+    end
+
+    mode = vim.fn.visualmode()
+    start_position = vim.fn.getpos("'<")
+    end_position = vim.fn.getpos("'>")
+    if
+      type(command.line1) ~= "number"
+      or type(command.line2) ~= "number"
+      or start_position[2] ~= command.line1
+      or end_position[2] ~= command.line2
+    then
+      notify_error("TermSend must be called from Visual mode.")
+      return nil
+    end
+  else
+    mode = vim.fn.mode(1)
+    start_position = vim.fn.getpos("v")
+    end_position = vim.fn.getpos(".")
+  end
+
+  if mode == "\22" then
+    notify_error("Blockwise Visual selections are not supported.")
+    return nil
+  end
+  if mode ~= "v" and mode ~= "V" then
+    notify_error("A characterwise or linewise Visual selection is required.")
+    return nil
+  end
+
+  local buf = vim.api.nvim_get_current_buf()
+  local linewise = mode == "V"
+  local first = selection_position(buf, start_position, linewise)
+  local last = selection_position(buf, end_position, linewise)
+  if not first or not last then
+    notify_error("Visual selection is missing or invalid.")
+    return nil
+  end
+  if first.line > last.line or (first.line == last.line and first.column > last.column) then
+    first, last = last, first
+  end
+
+  local name = vim.api.nvim_buf_get_name(buf)
+  if name == "" then
+    notify_error("Visual selection must be in a named buffer.")
+    return nil
+  end
+  return {
+    buf = buf,
+    path = normalize_path(vim.fn.fnamemodify(name, ":p")),
+    linewise = linewise,
+    first = first,
+    last = last,
+  }
+end
+
+---@param selection table
+---@param cwd string
+---@return string?
+local function selection_reference(selection, cwd)
+  local relative = relative_path(cwd, selection.path)
+  if not relative then
+    notify_error("Buffer and terminal cwd are on incompatible filesystem roots.")
+    return nil
+  end
+
+  local first = selection.first
+  local last = selection.last
+  local linewise = selection.linewise
+    or (first.column == 1 and last.column == math.max(last.line_length, 1))
+  if linewise then
+    if first.line == last.line then
+      return ("%s:%d"):format(relative, first.line)
+    end
+    return ("%s:%d-%d"):format(relative, first.line, last.line)
+  end
+  return ("%s:%d:%d-%d:%d"):format(relative, first.line, first.column, last.line, last.column)
+end
+
+---@param position? string
+---@return terminals.Entry[]
+local function visible_entries(position)
+  prune_all()
+  local entries = {}
+  for entry_position, position_groups in pairs(registry) do
+    if position == nil or position == entry_position then
+      for _, group in pairs(position_groups) do
+        for _, entry in ipairs(group.terminals) do
+          if win_valid(entry.terminal) then
+            entries[#entries + 1] = entry
+          end
+        end
+      end
+    end
+  end
+  return entries
+end
+
+---@param terminal snacks.terminal
+---@return integer?
+local function terminal_channel(terminal)
+  if not buf_valid(terminal) then
+    return nil
+  end
+
+  local ok, channel
+  if type(vim.api.nvim_get_option_value) == "function" then
+    ok, channel = pcall(vim.api.nvim_get_option_value, "channel", { buf = terminal.buf })
+  else
+    ok, channel = pcall(vim.api.nvim_buf_get_option, terminal.buf, "channel")
+  end
+  if not ok or type(channel) ~= "number" or channel < 1 or channel % 1 ~= 0 then
+    return nil
+  end
+  return channel
+end
+
 ---@param entry terminals.Entry
 local function attach(entry)
   local terminal = entry.terminal
@@ -890,6 +1139,75 @@ function M.toggle(opts)
     return entry.terminal
   end
   return focus(entry)
+end
+
+---Focus a managed terminal and insert a reference to the current Visual selection.
+---@param opts? terminals.SendOptions
+---@return snacks.terminal?
+function M.send(opts)
+  opts = opts or {}
+  local position = opts.position
+  if position ~= nil and not valid_positions[position] then
+    notify_error("Invalid terminal position: " .. tostring(position) .. ".")
+    return nil
+  end
+
+  local selection = visual_selection(opts._command)
+  if not selection then
+    return nil
+  end
+
+  local entry
+  local target_cwd
+  if position then
+    local open = visible_entries(position)
+    entry = open[1]
+    if entry then
+      target_cwd = entry.cwd
+    else
+      local cwd, resolved_position = applicable_scope(position)
+      local group = prune(cwd, resolved_position)
+      entry = group and group.terminals[group.active] or nil
+      target_cwd = entry and entry.cwd or cwd
+    end
+  else
+    local open = visible_entries()
+    if #open == 0 then
+      notify_error("No open managed terminal exists; specify a position to open one.")
+      return nil
+    end
+    if #open > 1 then
+      notify_error("Multiple open managed terminals exist; specify a position.")
+      return nil
+    end
+    entry = open[1]
+    target_cwd = entry.cwd
+  end
+
+  local reference = selection_reference(selection, target_cwd)
+  if not reference then
+    return nil
+  end
+
+  local terminal
+  if entry then
+    terminal = focus(entry)
+  else
+    terminal = M.new(nil, { cwd = target_cwd, position = position })
+  end
+
+  local channel = terminal_channel(terminal)
+  if not channel then
+    notify_error("Managed terminal has no valid channel.")
+    return nil
+  end
+
+  local ok, err = pcall(vim.api.nvim_chan_send, channel, reference)
+  if not ok then
+    notify_error("Failed to send reference to managed terminal: " .. tostring(err))
+    return nil
+  end
+  return terminal
 end
 
 return M

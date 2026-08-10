@@ -127,8 +127,17 @@ COMMANDS                                                *terminals-commands*
     Hide or show the selected terminal for the applicable directory and
     position group. Create a shell terminal when that group has no terminals.
 
-    Commands take no position arguments. They inherit the focused managed
-    terminal's position, or use the configured default outside one.
+    TermClose, TermPrev, TermNext, and TermToggle take no position arguments.
+    They inherit the focused managed terminal's position, or use the
+    configured default outside one.
+
+                                                       *:TermSend* *TermSend*
+:[range]TermSend [position]
+    From a characterwise or linewise Visual selection, focus a managed
+    terminal and insert the selected file location without a newline.
+    {position} is optional and may be "float", "top", "bottom", "left", or
+    "right". Position completion is provided. See |terminals.send()| for
+    targeting, formatting, and errors.
 
 ==============================================================================
 LUA API                                                    *terminals-api*
@@ -194,6 +203,42 @@ toggle({opts})                                    *terminals.toggle()*
     optional; {opts.position} targets a position using the same resolution as
     prev() and next(). If that exact group is empty, create and return a new
     shell terminal at the resolved position.
+
+send({opts})                                        *terminals.send()*
+    Capture the active characterwise or linewise Visual selection, focus a
+    managed terminal, and insert its formatted file location through the
+    terminal buffer channel. No newline is appended, so the reference is not
+    submitted. {opts} is optional; {opts.position} may be "float", "top",
+    "bottom", "left", or "right".
+
+    Without {opts.position}, all managed terminals with valid windows are
+    candidates, regardless of cwd or focus. Exactly one is focused and used.
+    No candidates reports an error without creating a terminal; multiple
+    candidates reports ambiguity and requires a position.
+
+    With {opts.position}, a visible terminal at that position is used even if
+    it belongs to another cwd. If none is visible there, send() restores the
+    active terminal in the applicable `(cwd, position)` group. It creates and
+    focuses a shell terminal at that position only when the exact group is
+    empty. The applicable cwd follows the same scope resolution used by
+    toggle().
+
+    The location is relative to the target terminal's cwd. Endpoints are
+    inclusive and columns are 1-based byte columns: >
+
+        path:line
+        path:start_line-end_line
+        path:start_line:start_col-end_line:end_col
+<
+    Reversed selections are normalized. A characterwise selection covering
+    complete lines uses the shorter linewise form. Paths outside the target
+    cwd may begin with `../`.
+
+    On success, return the focused Snacks terminal. Return nil and notify for
+    an invalid position, unsupported blockwise selection, missing or invalid
+    Visual marks, unnamed buffer, incompatible filesystem roots, invalid
+    terminal channel, or failed channel write. Selection and targeting errors
+    send no input. Channel errors occur after the target has been focused.
 
 ==============================================================================
 BEHAVIOR                                               *terminals-behavior*
@@ -266,6 +311,14 @@ is no predecessor, its immediate successor from that exact group is used. A
 fallback is never selected from another directory or position. Removing a
 background terminal does not change focus. If the group becomes empty, focus
 remains in Neovim's remaining window and no replacement terminal is created.
+
+TermSend captures its Visual selection and named source path before changing
+windows. Without a position it considers only managed terminals whose windows
+are currently open; hidden terminal buffers are not candidates. With a
+position, visibility is checked globally before the applicable directory group
+is restored or created. Delivery always focuses the resolved terminal and
+writes the reference directly with nvim_chan_send(), without a trailing
+newline.
 
 No global mappings are installed. Managed terminal buffers use the
 configurable action mappings described in |terminals-setup| and inherit

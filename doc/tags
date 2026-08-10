@@ -2,11 +2,13 @@
 :TermNew	terminals.txt	/*:TermNew*
 :TermNext	terminals.txt	/*:TermNext*
 :TermPrev	terminals.txt	/*:TermPrev*
+:TermSend	terminals.txt	/*:TermSend*
 :TermToggle	terminals.txt	/*:TermToggle*
 TermClose	terminals.txt	/*TermClose*
 TermNew	terminals.txt	/*TermNew*
 TermNext	terminals.txt	/*TermNext*
 TermPrev	terminals.txt	/*TermPrev*
+TermSend	terminals.txt	/*TermSend*
 TermToggle	terminals.txt	/*TermToggle*
 t:attention	terminals.txt	/*t:attention*
 terminals-api	terminals.txt	/*terminals-api*
@@ -22,5 +24,6 @@ terminals.new()	terminals.txt	/*terminals.new()*
 terminals.next()	terminals.txt	/*terminals.next()*
 terminals.nvim.txt	terminals.txt	/*terminals.nvim.txt*
 terminals.prev()	terminals.txt	/*terminals.prev()*
+terminals.send()	terminals.txt	/*terminals.send()*
 terminals.setup()	terminals.txt	/*terminals.setup()*
 terminals.toggle()	terminals.txt	/*terminals.toggle()*
