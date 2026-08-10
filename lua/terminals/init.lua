@@ -13,9 +13,14 @@ end
 ---@class terminals.NewOptions
 ---@field title? string
 ---@field cwd? string
+---@field position? string
+
+---@class terminals.ScopeOptions
+---@field position? string
 
 ---@class terminals.Entry
 ---@field cwd string
+---@field position string
 ---@field cmd? string|string[]
 ---@field terminal snacks.terminal
 ---@field title? string
@@ -32,13 +37,15 @@ end
 
 local defaults = {
   width = 220,
-  win = {},
+  win = {
+    position = "float",
+  },
 }
 
 ---@type terminals.Config
 local config = vim.deepcopy(defaults)
 
----@type table<string, terminals.Group>
+---@type table<string, table<string, terminals.Group>>
 local registry = {}
 
 local next_count = 0
@@ -82,9 +89,11 @@ local function win_valid(terminal)
 end
 
 ---@param cwd string
+---@param position string
 ---@return terminals.Group?
-local function prune(cwd)
-  local group = registry[cwd]
+local function prune(cwd, position)
+  local position_groups = registry[position]
+  local group = position_groups and position_groups[cwd] or nil
   if not group then
     return nil
   end
@@ -101,7 +110,10 @@ local function prune(cwd)
   end
 
   if #terminals == 0 then
-    registry[cwd] = nil
+    position_groups[cwd] = nil
+    if next(position_groups) == nil then
+      registry[position] = nil
+    end
     return nil
   end
 
@@ -119,9 +131,12 @@ local function prune(cwd)
 end
 
 local function prune_all()
-  local directories = vim.tbl_keys(registry)
-  for _, cwd in ipairs(directories) do
-    prune(cwd)
+  local positions = vim.tbl_keys(registry)
+  for _, position in ipairs(positions) do
+    local directories = vim.tbl_keys(registry[position])
+    for _, cwd in ipairs(directories) do
+      prune(cwd, position)
+    end
   end
 end
 
@@ -134,7 +149,8 @@ local function remove_entry(entry, select_fallback)
   end
   entry.removed = true
 
-  local group = registry[entry.cwd]
+  local position_groups = registry[entry.position]
+  local group = position_groups and position_groups[entry.cwd] or nil
   if not group then
     return nil, false
   end
@@ -156,7 +172,10 @@ local function remove_entry(entry, select_fallback)
   table.remove(group.terminals, removed_index)
 
   if #group.terminals == 0 then
-    registry[entry.cwd] = nil
+    position_groups[entry.cwd] = nil
+    if next(position_groups) == nil then
+      registry[entry.position] = nil
+    end
   elseif select_fallback or selected == entry then
     group.active = removed_index > 1 and removed_index - 1 or 1
   else
@@ -182,10 +201,11 @@ local function without_winleave(callback)
   return unpack(result, 2, result.n)
 end
 
+---@param position string
 ---@param except? snacks.terminal
-local function hide_visible(except)
+local function hide_visible(position, except)
   prune_all()
-  for _, group in pairs(registry) do
+  for _, group in pairs(registry[position] or {}) do
     for _, entry in ipairs(group.terminals) do
       local terminal = entry.terminal
       if terminal ~= except and win_valid(terminal) then
@@ -195,13 +215,34 @@ local function hide_visible(except)
   end
 end
 
+local focused_entry
+
+---@param previous? terminals.Entry
+---@param next_position string
+local function hide_departed_float(previous, next_position)
+  -- Managed focus changes suppress WinLeave while windows are rearranged, so
+  -- preserve the float auto-hide contract explicitly across positions.
+  if
+    previous
+    and previous.position == "float"
+    and previous.position ~= next_position
+    and win_valid(previous.terminal)
+  then
+    without_winleave(function()
+      previous.terminal:hide()
+    end)
+  end
+end
+
 ---@param entry terminals.Entry
 local function focus(entry)
+  local previous = focused_entry()
   without_winleave(function()
-    hide_visible(entry.terminal)
+    hide_visible(entry.position, entry.terminal)
     entry.terminal:show()
     entry.terminal:focus()
   end)
+  hide_departed_float(previous, entry.position)
   return entry.terminal
 end
 
@@ -221,23 +262,32 @@ local function clear_attention(entry)
 end
 
 ---@return terminals.Entry?
-local function focused_entry()
+focused_entry = function()
   prune_all()
   local current_win = vim.api.nvim_get_current_win()
   local current_buf = vim.api.nvim_get_current_buf()
-  for _, group in pairs(registry) do
-    for _, entry in ipairs(group.terminals) do
-      if entry.terminal.win == current_win and entry.terminal.buf == current_buf then
-        return entry
+  for _, position_groups in pairs(registry) do
+    for _, group in pairs(position_groups) do
+      for _, entry in ipairs(group.terminals) do
+        if entry.terminal.win == current_win and entry.terminal.buf == current_buf then
+          return entry
+        end
       end
     end
   end
 end
 
 ---@return string
-local function applicable_cwd()
+local function configured_position()
+  return (config.win or {}).position or "float"
+end
+
+---@param position? string
+---@return string, string, terminals.Entry?
+local function applicable_scope(position)
   local entry = focused_entry()
-  return entry and entry.cwd or neovim_cwd()
+  local cwd = entry and entry.cwd or neovim_cwd()
+  return cwd, position or (entry and entry.position or configured_position()), entry
 end
 
 ---@param cwd? string
@@ -330,8 +380,8 @@ local function winbar_title(entry)
 end
 
 ---@param win integer
----@return string?
-local function cwd_for_win(win)
+---@return terminals.Entry?
+local function entry_for_win(win)
   if win == 0 or not vim.api.nvim_win_is_valid(win) then
     return nil
   end
@@ -341,15 +391,17 @@ local function cwd_for_win(win)
     return nil
   end
 
-  for cwd, group in pairs(registry) do
-    for _, entry in ipairs(group.terminals) do
-      if
-        not entry.removed
-        and entry.terminal.win == win
-        and entry.terminal.buf == buf
-        and buf_valid(entry.terminal)
-      then
-        return cwd
+  for _, position_groups in pairs(registry) do
+    for _, group in pairs(position_groups) do
+      for _, entry in ipairs(group.terminals) do
+        if
+          not entry.removed
+          and entry.terminal.win == win
+          and entry.terminal.buf == buf
+          and buf_valid(entry.terminal)
+        then
+          return entry
+        end
       end
     end
   end
@@ -360,8 +412,8 @@ end
 ---@return string
 function M._winbar()
   local win = tonumber(vim.g.statusline_winid) or 0
-  local cwd = cwd_for_win(win)
-  local group = cwd and prune(cwd) or nil
+  local entry = entry_for_win(win)
+  local group = entry and prune(entry.cwd, entry.position) or nil
   if not group then
     return "%#NormalFloat#%="
   end
@@ -386,10 +438,11 @@ function M._winbar()
   return table.concat(parts)
 end
 
-local function window_options()
+---@param position string
+local function window_options(position)
   local user_win = config.win or {}
   return vim.tbl_deep_extend("force", {}, user_win, {
-    position = "float",
+    position = position,
     width = config.width,
     wo = {
       foldenable = false,
@@ -518,7 +571,7 @@ local function attach(entry)
     group = lifecycle_group,
     buffer = terminal.buf,
     callback = function(event)
-      if suppress_winleave > 0 or entry.hiding or entry.removed then
+      if entry.position ~= "float" or suppress_winleave > 0 or entry.hiding or entry.removed then
         return
       end
 
@@ -551,7 +604,8 @@ end
 ---@param opts? terminals.NewOptions
 ---@return snacks.terminal
 function M.new(cmd, opts)
-  local base = applicable_cwd()
+  local requested_position = opts and opts.position or nil
+  local base, position, previous = applicable_scope(requested_position)
   local cwd = resolve_cwd(opts and opts.cwd, base)
   local foreground = cwd == base
   next_count = next_count + 1
@@ -559,9 +613,9 @@ function M.new(cmd, opts)
   local terminal
   without_winleave(function()
     if foreground then
-      hide_visible()
+      hide_visible(position)
     end
-    local win = window_options()
+    local win = window_options(position)
     if not foreground then
       win.enter = false
     end
@@ -574,14 +628,21 @@ function M.new(cmd, opts)
   end)
   assert(terminal, "Snacks.terminal.open() did not return a terminal")
 
-  local group = registry[cwd]
+  local position_groups = registry[position]
+  if not position_groups then
+    position_groups = {}
+    registry[position] = position_groups
+  end
+
+  local group = position_groups[cwd]
   if not group then
     group = { terminals = {}, active = 1 }
-    registry[cwd] = group
+    position_groups[cwd] = group
   end
 
   local entry = {
     cwd = cwd,
+    position = position,
     cmd = cmd,
     terminal = terminal,
     title = opts and opts.title,
@@ -603,6 +664,9 @@ function M.new(cmd, opts)
       terminal:hide()
     end
   end)
+  if foreground then
+    hide_departed_float(previous, position)
+  end
   return terminal
 end
 
@@ -626,9 +690,11 @@ function M.close()
 end
 
 ---@param offset integer
+---@param opts? terminals.ScopeOptions
 ---@return snacks.terminal?
-local function cycle(offset)
-  local group = prune(applicable_cwd())
+local function cycle(offset, opts)
+  local cwd, position = applicable_scope(opts and opts.position or nil)
+  local group = prune(cwd, position)
   if not group then
     return nil
   end
@@ -637,24 +703,29 @@ local function cycle(offset)
   return focus(group.terminals[group.active])
 end
 
----Select and focus the previous terminal for the applicable directory group.
+---Select and focus the previous terminal for the applicable directory and position group.
+---@param opts? terminals.ScopeOptions
 ---@return snacks.terminal?
-function M.prev()
-  return cycle(-1)
+function M.prev(opts)
+  return cycle(-1, opts)
 end
 
----Select and focus the next terminal for the applicable directory group.
+---Select and focus the next terminal for the applicable directory and position group.
+---@param opts? terminals.ScopeOptions
 ---@return snacks.terminal?
-function M.next()
-  return cycle(1)
+function M.next(opts)
+  return cycle(1, opts)
 end
 
----Hide or show the selected terminal for the applicable directory group.
+---Hide or show the selected terminal for the applicable directory and position group.
+---@param opts? terminals.ScopeOptions
 ---@return snacks.terminal
-function M.toggle()
-  local group = prune(applicable_cwd())
+function M.toggle(opts)
+  local position_override = opts and opts.position or nil
+  local cwd, position = applicable_scope(position_override)
+  local group = prune(cwd, position)
   if not group then
-    return M.new()
+    return M.new(nil, { position = position })
   end
 
   local entry = group.terminals[group.active]

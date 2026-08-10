@@ -8,7 +8,7 @@ vim.api.nvim_create_user_command("TermNew", function(options)
 end, {
   nargs = "*",
   complete = "shellcmd",
-  desc = "Create a floating terminal",
+  desc = "Create a managed terminal",
 })
 
 vim.api.nvim_create_user_command("TermClose", function()

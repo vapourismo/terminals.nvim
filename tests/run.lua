@@ -335,6 +335,165 @@ test("isolates directories and cycles in creation order", function()
   current_is(created)
 end)
 
+test("resolves default, configured, per-call, and inherited positions", function()
+  local dir = directory("position-resolution")
+  cd(dir)
+  terminals.setup()
+
+  local default_float = terminals.new("default-float")
+  same(default_float.opts.win.position, "float", "float should remain the default position")
+
+  vim.api.nvim_set_current_win(main_win)
+  terminals.setup({ win = { position = "bottom" } })
+  local bottom = terminals.new("bottom")
+  same(bottom.opts.win.position, "bottom", "the configured position should apply outside managed terminals")
+
+  terminals.setup({ win = { position = "right" } })
+  vim.cmd("TermNew inherited")
+  local inherited = stub.opened[#stub.opened]
+  same(inherited.opts.win.position, "bottom", "TermNew should inherit a focused terminal's position")
+  same(bottom.opts.win.position, "bottom", "later setup calls should not mutate existing terminal options")
+
+  vim.api.nvim_set_current_win(main_win)
+  local configured_right = terminals.new("configured-right")
+  same(configured_right.opts.win.position, "right", "the latest configured default should apply in the editor")
+
+  local explicit_top = terminals.new("explicit-top", { position = "top" })
+  same(explicit_top.opts.win.position, "top", "a per-call position should override the focused position")
+  truthy(configured_right:win_valid(), "creating at another edge should preserve the existing split")
+
+  terminals.setup({ win = { position = "left" } })
+  same(explicit_top.opts.win.position, "top", "setup changes should not alter a per-call position")
+  vim.api.nvim_set_current_win(main_win)
+  local configured_left = terminals.new("configured-left")
+  same(configured_left.opts.win.position, "left", "all documented edge positions should reach Snacks")
+end)
+
+test("isolates navigation, visibility, winbars, and fallback by position", function()
+  cd(directory("position-groups"))
+  terminals.setup()
+
+  local left_one = terminals.new("left-one", { position = "left" })
+  local left_two = terminals.new("left-two", { position = "left" })
+  falsy(left_one:win_valid(), "a newer left terminal should replace the previous left terminal")
+
+  local right_one = terminals.new("right-one", { position = "right" })
+  local right_two = terminals.new("right-two")
+  truthy(left_two:win_valid(), "creating right terminals should leave the visible left terminal open")
+  falsy(right_one:win_valid(), "a newer right terminal should replace the previous right terminal")
+  truthy(right_two:win_valid(), "the newest right terminal should be visible")
+
+  same(
+    eval_winbar(left_two, 32).str,
+    " left-one   left-two " .. string.rep(" ", 11),
+    "the left winbar should contain only the left group"
+  )
+  same(
+    eval_winbar(right_two, 32).str,
+    " right-one   right-two " .. string.rep(" ", 9),
+    "the right winbar should contain only the right group"
+  )
+
+  same(terminals.prev({ position = "left" }), left_one, "targeted previous should use only the left group")
+  current_is(left_one)
+  truthy(right_two:win_valid(), "switching left terminals should preserve the visible right terminal")
+  falsy(left_two:win_valid(), "switching left terminals should hide the prior left terminal")
+
+  same(terminals.next(), left_two, "an omitted position should inherit the focused left scope")
+  current_is(left_two)
+  truthy(right_two:win_valid(), "implicit left navigation should not hide the right terminal")
+
+  same(terminals.prev({ position = "right" }), right_one, "the right active selection should be independent")
+  current_is(right_one)
+  truthy(left_two:win_valid(), "targeted right navigation should preserve the left terminal")
+  same(terminals.next({ position = "right" }), right_two, "targeted next should stay within the right group")
+  current_is(right_two)
+  same(terminals.prev({ position = "right" }), right_one, "the right selection should wrap independently")
+  current_is(right_one)
+
+  same(terminals.toggle({ position = "left" }), left_two, "targeted toggle should use the left selection")
+  falsy(left_two:win_valid(), "targeted toggle should hide only the selected left terminal")
+  current_is(right_one)
+  same(terminals.toggle({ position = "left" }), left_two, "targeted toggle should restore the left selection")
+  current_is(left_two)
+  truthy(right_one:win_valid(), "restoring the left terminal should leave the right terminal open")
+
+  same(terminals.close(), left_two, "closing should remove the focused left terminal")
+  current_is(left_one)
+  truthy(right_one:win_valid(), "left fallback should not hide the right terminal")
+
+  local right_focus_count = right_one.focus_count
+  same(terminals.close(), left_one, "closing the final left terminal should not select another position")
+  same(right_one.focus_count, right_focus_count, "closing an empty left group should not focus a right fallback")
+
+  local top = terminals.new("top-only", { position = "top" })
+  right_focus_count = right_one.focus_count
+  top:exit(0)
+  same(right_one.focus_count, right_focus_count, "a successful exit should not focus another position")
+  truthy(right_one:win_valid(), "another position should remain visible after the top group exits")
+end)
+
+test("keeps edge terminals visible on WinLeave while floats auto-hide", function()
+  cd(directory("position-winleave"))
+  terminals.setup()
+
+  local edge = terminals.new("edge", { position = "left" })
+  local edge_hide_count = edge.hide_count
+  vim.api.nvim_set_current_win(main_win)
+  vim.wait(20, function()
+    return false
+  end)
+  truthy(edge:win_valid(), "an edge terminal should remain visible after focus leaves it")
+  same(edge.hide_count, edge_hide_count, "WinLeave should not hide an edge terminal")
+
+  local float = terminals.new("float", { position = "float" })
+  truthy(edge:win_valid(), "opening a float should not replace an edge terminal")
+  vim.api.nvim_set_current_win(main_win)
+  truthy(vim.wait(100, function()
+    return not float:win_valid()
+  end), "a float should still auto-hide on WinLeave")
+  truthy(edge:win_valid(), "hiding the float should leave the edge terminal visible")
+
+  same(terminals.toggle({ position = "float" }), float, "the float should remain reusable")
+  local bottom = terminals.new("bottom", { position = "bottom" })
+  current_is(bottom)
+  falsy(float:win_valid(), "focusing another position should preserve float auto-hide behavior")
+  truthy(edge:win_valid(), "a managed focus transition should keep other edge terminals visible")
+end)
+
+test("isolates the Cartesian product of directories and positions", function()
+  local dir_a = directory("position-cartesian-a")
+  local dir_b = directory("position-cartesian-b")
+  cd(dir_a)
+  terminals.setup()
+
+  local a_left = terminals.new("a-left", { position = "left" })
+  local b_left = terminals.new("b-left", { cwd = dir_b, position = "left" })
+  local b_right = terminals.new("b-right", { cwd = dir_b, position = "right" })
+  falsy(b_left:win_valid(), "a cross-directory left terminal should start hidden")
+  falsy(b_right:win_valid(), "a cross-directory right terminal should start hidden")
+  truthy(a_left:win_valid(), "background creation should preserve the foreground terminal")
+
+  vim.api.nvim_set_current_win(main_win)
+  same(terminals.prev({ position = "right" }), nil, "an empty position in directory A should stay empty")
+  local a_right = terminals.toggle({ position = "right" })
+  same(a_right.opts.cwd, dir_a, "empty targeted toggle should create in the applicable directory")
+  same(a_right.opts.win.position, "right", "empty targeted toggle should create at the requested position")
+  truthy(a_left:win_valid(), "creating directory A's right terminal should preserve its left terminal")
+
+  vim.api.nvim_set_current_win(main_win)
+  cd(dir_b)
+  same(terminals.toggle({ position = "left" }), b_left, "directory B should retain its left selection")
+  falsy(a_left:win_valid(), "showing directory B's left terminal should replace directory A's left terminal")
+  truthy(a_right:win_valid(), "showing a left terminal should preserve the visible right terminal")
+
+  same(terminals.toggle({ position = "right" }), b_right, "directory B should retain its right selection")
+  falsy(a_right:win_valid(), "showing directory B's right terminal should replace directory A's right terminal")
+  truthy(b_left:win_valid(), "showing a right terminal should preserve directory B's left terminal")
+  same(eval_winbar(b_left, 20).str, " b-left " .. string.rep(" ", 12), "left winbar scope should be exact")
+  same(eval_winbar(b_right, 20).str, " b-right " .. string.rep(" ", 11), "right winbar scope should be exact")
+end)
+
 test("starts an absolute cross-directory terminal hidden and reuses it later", function()
   local editor_dir = directory("cwd-absolute-editor")
   local target_dir = directory("cwd-absolute-target")
@@ -816,7 +975,7 @@ test("provides terminal-scoped action mappings whose callbacks manage terminals"
   falsy(second:buf_valid(), "the close mapping should wipe the terminal buffer")
 end)
 
-test("merges float options and enforces terminal invariants", function()
+test("merges window options and enforces terminal invariants", function()
   local dir = directory("options")
   cd(dir)
   terminals.setup()
@@ -854,10 +1013,10 @@ test("merges float options and enforces terminal invariants", function()
     },
   })
 
-  local terminal = terminals.new("configured")
+  local terminal = terminals.new("configured", { position = "bottom" })
   local win = terminal.opts.win
   same(existing.opts.win.width, 220, "setup should not mutate existing terminal options")
-  same(win.position, "float", "position should be enforced")
+  same(win.position, "bottom", "the resolved position should be enforced")
   same(win.width, 91, "configured character width should be enforced")
   same(win.border, "double", "additional window options should survive")
   same(win.height, 0.6, "additional dimensions should survive")

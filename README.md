@@ -1,16 +1,17 @@
 # terminals.nvim
 
-`terminals.nvim` is a small floating terminal manager built around the
+`terminals.nvim` is a small terminal manager built around the
 persistent window objects provided by
 [Snacks Terminal](https://github.com/folke/snacks.nvim/blob/main/docs/terminal.md).
 It keeps terminals ordered by creation time, remembers the selected terminal,
 and shares that state across tabs.
 
-Terminals are grouped by the absolute working directory used to spawn them.
-Directories are normalized without resolving symbolic links. Outside a managed
-terminal, the default group is Neovim's working directory returned by
-`getcwd()`; inside one, actions stay with the focused terminal's group even if
-Neovim's working directory differs.
+Terminals are grouped by the absolute working directory used to spawn them and
+their window position. Each `(cwd, position)` group has its own creation order
+and selected terminal. Directories are normalized without resolving symbolic
+links. Outside a managed terminal, the default scope uses Neovim's working
+directory returned by `getcwd()` and the configured position; inside one,
+actions inherit the focused terminal's directory and position.
 
 ## Requirements
 
@@ -40,15 +41,21 @@ Setup is optional. These are the defaults:
 ```lua
 require("terminals").setup({
   width = 220,
-  win = {},
+  win = {
+    position = "float",
+  },
 })
 ```
 
 `width` is a character width (Snacks clamps it when the editor is narrower).
 `win` accepts additional
 [`snacks.win`](https://github.com/folke/snacks.nvim/blob/main/docs/win.md)
-float options. Configuration affects terminals created after `setup()`;
-existing terminal objects keep their original options.
+options. `win.position` sets the default position and may be `float`, `top`,
+`bottom`, `left`, or `right`. The Snacks buffer-replacing `current` position is
+not part of this plugin's supported contract. Configuration affects terminals
+created after `setup()`; existing terminal objects keep their resolved position
+and other original options. `width` remains shared across positions; other
+Snacks options such as `height` may be supplied for the chosen position.
 
 Every newly created managed terminal has these buffer-local mappings in both
 Normal and Terminal modes:
@@ -82,12 +89,13 @@ require("terminals").setup({
 ```
 
 Unrelated custom `win.keys` entries are preserved. The manager applies its
-required window behavior last: `position = "float"`, the configured width,
+required window behavior last: the resolved position, the configured width,
 manual folding with folding disabled, its managed `win.wo.winbar` expression,
-and no Normal-mode `q` mapping. Escape handling uses the Snacks defaults;
-`terminals.nvim` does not supply Escape mappings. These enforced window
-options and the disabled `q` mapping cannot be overridden; in particular, a
-user-provided `win.wo.winbar` is replaced.
+and no Normal-mode `q` mapping. A per-call position takes precedence over
+`win.position`. Escape handling uses the Snacks defaults; `terminals.nvim` does
+not supply Escape mappings. These enforced window options and the disabled `q`
+mapping cannot be overridden; in particular, a user-provided `win.wo.winbar`
+is replaced.
 
 ## Commands
 
@@ -95,20 +103,21 @@ user-provided `win.wo.winbar` is replaced.
 | --- | --- | --- |
 | `:TermNew [command...]` | `require("terminals").new(cmd?, opts?)` | Create and select a terminal. Lua focuses it when its resolved directory matches the applicable directory; otherwise it starts hidden. |
 | `:TermClose` | `.close()` | Destroy the focused managed terminal; do nothing outside one. |
-| `:TermPrev` | `.prev()` | Circularly select the previous terminal for the applicable directory group. |
-| `:TermNext` | `.next()` | Circularly select the next terminal for the applicable directory group. |
-| `:TermToggle` | `.toggle()` | Hide/show the selected terminal for the applicable group, creating a shell terminal if it is empty. |
+| `:TermPrev` | `.prev(opts?)` | Circularly select the previous terminal for the applicable `(cwd, position)` group. |
+| `:TermNext` | `.next(opts?)` | Circularly select the next terminal for the applicable `(cwd, position)` group. |
+| `:TermToggle` | `.toggle(opts?)` | Hide/show the selected terminal for the applicable group, creating a shell terminal if it is empty. |
 
 `TermNew` forwards its command-line arguments as one shell string and provides
 shell-command completion. Passing no command creates a terminal using the shell
 configured by Snacks.
 
-The Lua API accepts a persistent winbar title and a terminal working directory
+The Lua API accepts a persistent winbar title, working directory, and position
 at creation time:
 
 ```lua
 require("terminals").new("npm test", {
   cwd = "../app",
+  position = "right",
   title = "Tests",
 })
 ```
@@ -118,29 +127,51 @@ resolving symbolic links. A relative path is resolved against the focused
 managed terminal's group, or against Neovim's `getcwd()` when invoked outside a
 managed terminal. With no `opts.cwd`, `new()` uses that same base directory.
 The resolved absolute path is passed to Snacks as the process `cwd` and owns the
-terminal group, so equivalent normalized paths share creation order and active
-selection. `:TermNew` retains its existing command-only syntax; use the Lua API
-to select a custom directory. When the resolved path matches the captured base
-directory, `new()` hides any other visible managed terminal and focuses the new
-one as before. When it differs, the terminal process is started and made the
-target group's active selection, but its window is hidden and the current
-window remains visible and focused. Toggling from the target directory later
-reveals that same terminal. Because `:TermNew` and the default new-terminal
-mapping do not set another directory, they remain foreground operations.
+terminal's directory scope.
+
+`opts.position` may select any supported position for that terminal. When it is
+omitted, `new()` inherits the focused managed terminal's position, or uses
+`setup().win.position` outside a managed terminal. The resolved creation
+position is retained even if `setup()` changes later. Equivalent normalized
+paths share creation order and active selection only when their positions also
+match. `:TermNew` retains its existing command-only syntax; use the Lua API for
+custom directories or positions.
+
+When the resolved path matches the captured base directory, `new()` replaces a
+visible terminal only at the target position and focuses the new terminal. An
+explicit different position is therefore opened in the foreground while edge
+terminals at other positions remain visible. When the path differs, the process
+starts in the background as its target group's active selection; the current
+window and visible terminals remain in place. Toggling from the target directory
+later reveals that same terminal. Because `:TermNew` and the default new-terminal
+mapping set neither directory nor position, they inherit both from a focused
+managed terminal and remain foreground operations.
+
+`prev()`, `next()`, and `toggle()` accept an optional position target:
+
+```lua
+require("terminals").toggle({ position = "left" })
+require("terminals").next({ position = "right" })
+```
+
+With no target, these functions use the focused managed terminal's position or
+the configured default outside one. Their directory is always the focused
+managed terminal's directory or Neovim's current directory outside one. The
+argument-free commands use this same implicit resolution.
 
 The Lua functions return the selected Snacks terminal object. `close()`,
 `prev()`, and `next()` return `nil` when there is no applicable managed
-terminal. `setup()` has no return value.
+terminal. A targeted `toggle()` creates a shell terminal when that exact scope
+is empty. `setup()` has no return value.
 
-Only one managed float is shown at a time. Creating a terminal for another
-directory keeps the currently visible float or editor window in place and
-starts the new terminal in the background. Leaving a terminal float hides its
-window but preserves its buffer and process; toggling or cycling back restores
-the same persistent terminal. While a managed terminal is focused, `new()`,
-`prev()`, `next()`, and `toggle()` operate on its directory group. Outside a
-managed terminal they use Neovim's current directory. Wiping a terminal buffer
-removes it from the registry.
-Every managed float has a left-aligned winbar listing its directory group's
+At most one managed terminal is shown per position. Selecting another terminal
+hides only the visible terminal at that position, so edge splits at other
+positions remain open. Leaving a managed float hides its window while preserving
+its buffer and process; edge-positioned terminals remain visible when focus
+moves elsewhere. Toggling or cycling restores the same persistent object.
+Wiping a terminal buffer removes it from its exact `(cwd, position)` group.
+
+Every managed terminal has a left-aligned winbar listing only its exact group's
 terminals in creation order. A non-`nil` `opts.title`, including an empty
 string, is authoritative for the terminal's lifetime. Otherwise, the winbar
 uses the terminal's creation command: shell strings are displayed directly,
@@ -165,9 +196,11 @@ Intentional closes through `close()`, `:TermClose`, or the default `<D-w>`
 mapping are silent. A command that exits unsuccessfully still reports its exit
 status and keeps the terminal open for inspection; a successful exit closes it.
 When a focused terminal is closed, exits successfully, or is wiped, its
-immediate predecessor in creation order is focused. If it has no predecessor,
-the immediate successor is focused instead. Removing a background terminal
-does not change focus, and removing the group's only terminal leaves focus in
-Neovim's remaining window without creating a replacement.
+immediate predecessor in the same `(cwd, position)` group is focused. If it has
+no predecessor, the immediate successor from that exact group is focused
+instead. A fallback is never selected from another directory or position.
+Removing a background terminal does not change focus, and removing the group's
+only terminal leaves focus in Neovim's remaining window without creating a
+replacement.
 
 See `:help terminals.nvim` for the full help file.
