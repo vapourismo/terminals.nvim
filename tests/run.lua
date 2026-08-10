@@ -443,6 +443,55 @@ test("focuses adjacent terminals after successful exits without stealing backgro
   current_is(fallback)
 end)
 
+test("replaces visible unfocused edge terminals after successful exits", function()
+  cd(directory("visible-edge-exit-handoff"))
+  terminals.setup()
+
+  local fallback = terminals.new("bottom-fallback", { position = "bottom" })
+  local exiting = terminals.new("bottom-exiting", { position = "bottom" })
+  local other_position = terminals.new("top", { position = "top" })
+  local exiting_buffer = exiting.buf
+  local other_position_win = other_position.win
+  local other_position_hide_count = other_position.hide_count
+  local opened = #stub.opened
+
+  fallback:request("\027]9;fallback finished")
+  same(tab_attention(), true, "the hidden fallback should retain its unread attention")
+  vim.api.nvim_set_current_win(main_win)
+  exiting:exit(0)
+
+  falsy(vim.api.nvim_buf_is_valid(exiting_buffer), "the exited edge terminal should wipe its buffer")
+  same(exiting.close_count, 1, "the exited edge terminal should close its Snacks object")
+  truthy(fallback:win_valid(), "the adjacent terminal should replace the visible exited terminal")
+  same(#stub.opened, opened, "the replacement should reuse the adjacent Snacks object")
+  same(vim.api.nvim_get_current_win(), main_win, "the replacement should preserve editor focus")
+  same(tab_attention(), true, "showing an unfocused fallback should preserve its unread attention")
+  same(other_position.win, other_position_win, "another terminal position should keep its window")
+  truthy(other_position:win_valid(), "another terminal position should remain visible")
+  same(
+    other_position.hide_count,
+    other_position_hide_count,
+    "replacing the exited terminal should not hide another position"
+  )
+end)
+
+test("does not restore visible unfocused floats after successful exits", function()
+  cd(directory("visible-float-exit"))
+  terminals.setup()
+
+  local fallback = terminals.new("float-fallback", { position = "float" })
+  local exiting = terminals.new("float-exiting", { position = "float" })
+  falsy(fallback:win_valid(), "the adjacent float should start hidden")
+
+  vim.api.nvim_win_call(main_win, function()
+    exiting:exit(0)
+  end)
+
+  falsy(exiting:buf_valid(), "the exited float should be destroyed")
+  falsy(fallback:win_valid(), "an unfocused float should remain hidden after the visible float exits")
+  same(vim.api.nvim_get_current_win(), main_win, "the float exit should leave focus in the editor")
+end)
+
 test("retains hidden failed exits for inspection without stealing focus", function()
   cd(directory("background-failed-exit"))
   local notifications = #stub.notifications
@@ -1485,6 +1534,17 @@ test("keeps side terminal widths resizable", function()
     same(terminals.toggle({ position = position }), replacement, position .. " toggle should hide the terminal")
     same(terminals.toggle({ position = position }), replacement, position .. " toggle should restore the terminal")
     same(vim.api.nvim_win_get_width(replacement.win), toggled_width, position .. " toggle should retain the live width")
+
+    vim.api.nvim_set_current_win(main_win)
+    replacement:exit(0)
+    truthy(terminal:win_valid(), position .. " successful exit should show the adjacent terminal")
+    same(
+      vim.api.nvim_win_get_width(terminal.win),
+      toggled_width,
+      position .. " successful exit replacement should retain the live width"
+    )
+    same(vim.api.nvim_get_current_win(), main_win, position .. " successful exit should preserve editor focus")
+    terminal:hide()
   end
 
   for _, position in ipairs({ "float", "top", "bottom" }) do

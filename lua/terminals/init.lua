@@ -512,6 +512,37 @@ local function focus_fallback(entry)
   end
 end
 
+---@param entry terminals.Entry?
+local function show_unfocused_edge_fallback(entry)
+  if not entry or entry.removed or not buf_valid(entry.terminal) then
+    return
+  end
+
+  local terminal = entry.terminal
+  without_winleave(function()
+    hide_visible(entry.position, terminal)
+
+    -- A hidden Snacks window normally retains the enter behavior it had at
+    -- creation. Disable it only while restoring a position whose terminal
+    -- exited, so an unfocused edge split stays open without stealing focus.
+    local opts = type(terminal.opts) == "table" and terminal.opts or nil
+    local win = opts and (type(opts.win) == "table" and opts.win or opts) or nil
+    local enter = win and win.enter
+    if win then
+      win.enter = false
+    end
+    local result = pack(pcall(terminal.show, terminal))
+    if win then
+      win.enter = enter
+    end
+    if not result[1] then
+      error(result[2], 0)
+    end
+
+    enforce_side_window(entry.position, terminal)
+  end)
+end
+
 local function terminal_action_keys()
   return {
     term_new = {
@@ -913,13 +944,17 @@ local function attach(entry)
       end
 
       local was_focused = entry_focused(entry)
+      local was_visible = win_valid(terminal)
+      local replace_visible_edge = was_visible and is_split(entry.position)
       remember_side_width(entry.position, terminal)
-      local fallback, removed = remove_entry(entry, was_focused)
+      local fallback, removed = remove_entry(entry, was_focused or replace_visible_edge)
       without_winleave(function()
         terminal:close()
       end)
       if removed and was_focused then
         focus_fallback(fallback)
+      elseif removed and replace_visible_edge then
+        show_unfocused_edge_fallback(fallback)
       end
       vim.cmd.checktime()
     end,

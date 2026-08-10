@@ -308,9 +308,13 @@ closes and removes it.
 When the removed terminal was focused, its immediate predecessor in creation
 order from the same directory and position is selected and focused. If there
 is no predecessor, its immediate successor from that exact group is used. A
-fallback is never selected from another directory or position. Removing a
-background terminal does not change focus. If the group becomes empty, focus
-remains in Neovim's remaining window and no replacement terminal is created.
+fallback is never selected from another directory or position. When a visible
+but unfocused edge terminal exits successfully, the same adjacent fallback is
+shown in its position and the previously focused editor or other window keeps
+focus. A hidden terminal that exits successfully is removed without showing a
+fallback or changing focus. If the group becomes empty, its position closes,
+focus remains in Neovim's remaining window, and no replacement terminal is
+created.
 
 TermSend captures its Visual selection and named source path before changing
 windows. Without a position it considers only managed terminals whose windows

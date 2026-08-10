@@ -249,10 +249,13 @@ status and keeps the terminal open for inspection; a successful exit closes it.
 When a focused terminal is closed, exits successfully, or is wiped, its
 immediate predecessor in the same `(cwd, position)` group is focused. If it has
 no predecessor, the immediate successor from that exact group is focused
-instead. A fallback is never selected from another directory or position.
-Removing a background terminal does not change focus, and removing the group's
-only terminal leaves focus in Neovim's remaining window without creating a
-replacement.
+instead. When a visible but unfocused edge terminal exits successfully, the same
+adjacent fallback replaces it in that position while the previously focused
+editor or other window keeps focus. A hidden terminal that exits successfully
+is removed without showing a fallback or changing focus. A fallback is never
+selected from another directory or position. Removing the group's only terminal
+closes that position and leaves focus in Neovim's remaining window without
+creating a replacement.
 
 `TermSend` and `send()` reject blockwise selections, missing or stale Visual
 marks, and unnamed buffers. They also report incompatible filesystem roots, an
