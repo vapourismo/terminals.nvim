@@ -90,7 +90,12 @@ require("terminals").setup({
 Unrelated custom `win.keys` entries are preserved. The manager applies its
 required window behavior last: the resolved position, manual folding with
 folding disabled, its managed `win.wo.winbar` expression, and no Normal-mode
-`q` mapping. Left and right terminals also enforce `win.wo.winfixwidth = false`,
+`q` mapping. Top, bottom, left, and right terminals enforce
+`win.wo.winhighlight` mappings from both `Normal` and `NormalNC` to
+`NormalFloat`, giving focused and inactive split terminals the same background.
+Conflicting user mappings for those two groups are replaced, while unrelated
+`winhighlight` mappings are preserved; floating terminals leave the option
+unchanged. Left and right terminals also enforce `win.wo.winfixwidth = false`,
 so a configured `win.width` sets their initial width without preventing later
 resizing. Their live width is retained when managed terminals are created,
 selected, hidden, or restored. A per-call position takes precedence over

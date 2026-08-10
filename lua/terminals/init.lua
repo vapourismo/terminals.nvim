@@ -97,6 +97,29 @@ local function is_side(position)
 end
 
 ---@param position string
+---@return boolean
+local function is_split(position)
+  return position == "top" or position == "bottom" or is_side(position)
+end
+
+---@param value any
+---@return string
+local function split_winhighlight(value)
+  local mappings = {}
+  if type(value) == "string" then
+    for mapping in value:gmatch("[^,]+") do
+      local source = mapping:match("^([^:]+):")
+      if source ~= "Normal" and source ~= "NormalNC" then
+        mappings[#mappings + 1] = mapping
+      end
+    end
+  end
+  mappings[#mappings + 1] = "Normal:NormalFloat"
+  mappings[#mappings + 1] = "NormalNC:NormalFloat"
+  return table.concat(mappings, ",")
+end
+
+---@param position string
 ---@param terminal snacks.terminal
 local function remember_side_width(position, terminal)
   if not is_side(position) or not win_valid(terminal) then
@@ -504,6 +527,9 @@ local function window_options(position)
     foldmethod = "manual",
     winbar = winbar_expression,
   }
+  if is_split(position) then
+    enforced_wo.winhighlight = split_winhighlight((user_win.wo or {}).winhighlight)
+  end
   if is_side(position) then
     enforced_wo.winfixwidth = false
   end

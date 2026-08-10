@@ -1059,6 +1059,71 @@ test("merges window options and enforces terminal invariants", function()
   same(disabled.term_escape, nil, "no additional Escape mapping should be supplied")
 end)
 
+test("uses the floating background for focused and inactive split terminals", function()
+  local dir = directory("split-backgrounds")
+  cd(dir)
+  local user_winhighlight = "Normal:UserNormal,CursorLine:Visual,NormalNC:UserNormalNC,FloatBorder:DiagnosticInfo"
+  local expected = "CursorLine:Visual,FloatBorder:DiagnosticInfo,Normal:NormalFloat,NormalNC:NormalFloat"
+  terminals.setup({
+    win = {
+      wo = {
+        winhighlight = user_winhighlight,
+      },
+    },
+  })
+
+  local splits = {}
+  for _, position in ipairs({ "top", "bottom", "left", "right" }) do
+    local terminal = terminals.new(position, { position = position })
+    splits[#splits + 1] = terminal
+    same(terminal.opts.win.wo.winhighlight, expected, position .. " should enforce both background mappings")
+    same(
+      vim.api.nvim_get_option_value("winhighlight", { win = terminal.win }),
+      expected,
+      position .. " should apply the enforced mappings to its window"
+    )
+  end
+
+  vim.api.nvim_set_current_win(main_win)
+  for _, terminal in ipairs(splits) do
+    same(
+      vim.api.nvim_get_option_value("winhighlight", { win = terminal.win }),
+      expected,
+      terminal.opts.win.position .. " should keep the mappings while inactive"
+    )
+    terminal:focus()
+    same(
+      vim.api.nvim_get_option_value("winhighlight", { win = terminal.win }),
+      expected,
+      terminal.opts.win.position .. " should keep the mappings while focused"
+    )
+  end
+
+  local recreated = splits[1]
+  recreated:focus()
+  same(terminals.toggle({ position = "top" }), recreated, "toggle should hide the focused top terminal")
+  falsy(recreated:win_valid(), "the top terminal window should be hidden")
+  same(terminals.toggle({ position = "top" }), recreated, "toggle should recreate the top terminal window")
+  same(
+    vim.api.nvim_get_option_value("winhighlight", { win = recreated.win }),
+    expected,
+    "a recreated split window should reapply the enforced mappings"
+  )
+
+  vim.api.nvim_set_current_win(main_win)
+  local floating = terminals.new("float", { position = "float" })
+  same(
+    floating.opts.win.wo.winhighlight,
+    user_winhighlight,
+    "floating terminals should preserve the user-provided mappings unchanged"
+  )
+  same(
+    vim.api.nvim_get_option_value("winhighlight", { win = floating.win }),
+    user_winhighlight,
+    "floating terminal windows should apply the unchanged user mappings"
+  )
+end)
+
 test("keeps side terminal widths resizable", function()
   local dir = directory("resizable-side-widths")
   cd(dir)
