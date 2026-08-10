@@ -21,11 +21,11 @@ actions inherit the focused terminal's directory and position.
 
 ## Installation
 
-With lazy.nvim (replace `OWNER` with the repository owner):
+With lazy.nvim:
 
 ```lua
 {
-  "OWNER/terminals.nvim",
+  "vapourismo/terminals.nvim",
   dependencies = { "folke/snacks.nvim" },
   opts = {},
 }
