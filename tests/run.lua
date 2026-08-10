@@ -348,7 +348,7 @@ test("resolves default, configured, per-call, and inherited positions", function
   local bottom = terminals.new("bottom")
   same(bottom.opts.win.position, "bottom", "the configured position should apply outside managed terminals")
 
-  terminals.setup({ win = { position = "right" } })
+  terminals.setup({ win = { position = "right", width = 31 } })
   vim.cmd("TermNew inherited")
   local inherited = stub.opened[#stub.opened]
   same(inherited.opts.win.position, "bottom", "TermNew should inherit a focused terminal's position")
@@ -357,16 +357,18 @@ test("resolves default, configured, per-call, and inherited positions", function
   vim.api.nvim_set_current_win(main_win)
   local configured_right = terminals.new("configured-right")
   same(configured_right.opts.win.position, "right", "the latest configured default should apply in the editor")
+  same(configured_right.opts.win.width, 31, "a configured right width should reach Snacks initially")
 
   local explicit_top = terminals.new("explicit-top", { position = "top" })
   same(explicit_top.opts.win.position, "top", "a per-call position should override the focused position")
   truthy(configured_right:win_valid(), "creating at another edge should preserve the existing split")
 
-  terminals.setup({ win = { position = "left" } })
+  terminals.setup({ win = { position = "left", width = 29 } })
   same(explicit_top.opts.win.position, "top", "setup changes should not alter a per-call position")
   vim.api.nvim_set_current_win(main_win)
   local configured_left = terminals.new("configured-left")
   same(configured_left.opts.win.position, "left", "all documented edge positions should reach Snacks")
+  same(configured_left.opts.win.width, 29, "a configured left width should reach Snacks initially")
 end)
 
 test("isolates navigation, visibility, winbars, and fallback by position", function()
@@ -1063,6 +1065,9 @@ test("keeps side terminal widths resizable", function()
   terminals.setup({
     win = {
       width = 27,
+      on_win = function(snacks_win)
+        snacks_win.user_on_win_called = true
+      end,
       wo = {
         winfixwidth = true,
       },
@@ -1071,13 +1076,37 @@ test("keeps side terminal widths resizable", function()
 
   for _, position in ipairs({ "left", "right" }) do
     local terminal = terminals.new(position, { position = position })
-    same(terminal.opts.win.width, 27, position .. " width should reach Snacks")
     same(terminal.opts.win.wo.winfixwidth, false, position .. " should override a fixed user width")
+
+    local resized_width = position == "left" and 18 or 22
+    vim.api.nvim_win_set_width(terminal.win, resized_width)
+    local replacement = terminals.new(position .. " replacement", { position = position })
+    same(replacement.opts.win.width, resized_width, position .. " replacement should retain the live width")
+    same(vim.api.nvim_win_get_width(replacement.win), resized_width, position .. " window width should not reset")
+
+    local snacks_win = {
+      opts = vim.deepcopy(replacement.opts.win),
+      win = replacement.win,
+      win_valid = function(self)
+        return vim.api.nvim_win_is_valid(self.win)
+      end,
+    }
+    snacks_win.opts.wo.winfixwidth = true
+    vim.api.nvim_set_option_value("winfixwidth", true, { win = snacks_win.win })
+    replacement.opts.win.on_win(snacks_win)
+    truthy(snacks_win.user_on_win_called, position .. " should preserve the user on_win callback")
+    same(snacks_win.opts.wo.winfixwidth, false, position .. " should correct Snacks' stored split default")
     same(
-      vim.api.nvim_get_option_value("winfixwidth", { win = terminal.win }),
+      vim.api.nvim_get_option_value("winfixwidth", { win = replacement.win }),
       false,
       position .. " Neovim window should remain resizable"
     )
+
+    local toggled_width = resized_width + 1
+    vim.api.nvim_win_set_width(replacement.win, toggled_width)
+    same(terminals.toggle({ position = position }), replacement, position .. " toggle should hide the terminal")
+    same(terminals.toggle({ position = position }), replacement, position .. " toggle should restore the terminal")
+    same(vim.api.nvim_win_get_width(replacement.win), toggled_width, position .. " toggle should retain the live width")
   end
 
   for _, position in ipairs({ "float", "top", "bottom" }) do
@@ -1087,6 +1116,7 @@ test("keeps side terminal widths resizable", function()
       true,
       position .. " should preserve the user-provided winfixwidth"
     )
+    same(type(terminal.opts.win.on_win), "function", position .. " should preserve the user on_win callback")
   end
 end)
 

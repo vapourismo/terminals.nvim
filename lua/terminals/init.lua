@@ -46,6 +46,10 @@ local config = vim.deepcopy(defaults)
 ---@type table<string, table<string, terminals.Group>>
 local registry = {}
 
+-- Snacks recreates managed splits, so retain user-adjusted side widths across windows.
+---@type table<string, integer>
+local side_widths = {}
+
 local next_count = 0
 local suppress_winleave = 0
 local winbar_expression = "%!v:lua.require'terminals'._winbar()"
@@ -86,6 +90,45 @@ local function win_valid(terminal)
   return ok and valid == true
 end
 
+---@param position string
+---@return boolean
+local function is_side(position)
+  return position == "left" or position == "right"
+end
+
+---@param position string
+---@param terminal snacks.terminal
+local function remember_side_width(position, terminal)
+  if not is_side(position) or not win_valid(terminal) then
+    return
+  end
+  local ok, width = pcall(vim.api.nvim_win_get_width, terminal.win)
+  if ok then
+    side_widths[position] = width
+  end
+end
+
+---@param position string
+---@param terminal snacks.terminal
+local function enforce_side_window(position, terminal)
+  if not is_side(position) then
+    return
+  end
+
+  if type(terminal.opts) == "table" then
+    local win = type(terminal.opts.win) == "table" and terminal.opts.win or terminal.opts
+    win.wo = type(win.wo) == "table" and win.wo or {}
+    win.wo.winfixwidth = false
+  end
+
+  if win_valid(terminal) then
+    pcall(vim.api.nvim_set_option_value, "winfixwidth", false, { win = terminal.win })
+    if side_widths[position] then
+      pcall(vim.api.nvim_win_set_width, terminal.win, side_widths[position])
+    end
+  end
+end
+
 ---@param cwd string
 ---@param position string
 ---@return terminals.Group?
@@ -111,6 +154,7 @@ local function prune(cwd, position)
     position_groups[cwd] = nil
     if next(position_groups) == nil then
       registry[position] = nil
+      side_widths[position] = nil
     end
     return nil
   end
@@ -134,6 +178,19 @@ local function prune_all()
     local directories = vim.tbl_keys(registry[position])
     for _, cwd in ipairs(directories) do
       prune(cwd, position)
+    end
+  end
+end
+
+---@param position string
+local function remember_visible_side_width(position)
+  if not is_side(position) then
+    return
+  end
+  prune_all()
+  for _, group in pairs(registry[position] or {}) do
+    for _, entry in ipairs(group.terminals) do
+      remember_side_width(position, entry.terminal)
     end
   end
 end
@@ -173,6 +230,7 @@ local function remove_entry(entry, select_fallback)
     position_groups[entry.cwd] = nil
     if next(position_groups) == nil then
       registry[entry.position] = nil
+      side_widths[entry.position] = nil
     end
   elseif select_fallback or selected == entry then
     group.active = removed_index > 1 and removed_index - 1 or 1
@@ -207,6 +265,7 @@ local function hide_visible(position, except)
     for _, entry in ipairs(group.terminals) do
       local terminal = entry.terminal
       if terminal ~= except and win_valid(terminal) then
+        remember_side_width(position, terminal)
         terminal:hide()
       end
     end
@@ -238,6 +297,7 @@ local function focus(entry)
   without_winleave(function()
     hide_visible(entry.position, entry.terminal)
     entry.terminal:show()
+    enforce_side_window(entry.position, entry.terminal)
     entry.terminal:focus()
   end)
   hide_departed_float(previous, entry.position)
@@ -444,10 +504,10 @@ local function window_options(position)
     foldmethod = "manual",
     winbar = winbar_expression,
   }
-  if position == "left" or position == "right" then
+  if is_side(position) then
     enforced_wo.winfixwidth = false
   end
-  return vim.tbl_deep_extend("force", {}, user_win, {
+  local win = vim.tbl_deep_extend("force", {}, user_win, {
     position = position,
     wo = enforced_wo,
     keys = vim.tbl_deep_extend(
@@ -457,6 +517,17 @@ local function window_options(position)
       enforced_terminal_keys()
     ),
   })
+  if is_side(position) then
+    win.width = side_widths[position] or win.width
+    local on_win = win.on_win
+    win.on_win = function(snacks_win)
+      local result = on_win and pack(on_win(snacks_win)) or { n = 0 }
+      -- Snacks forces fixed dimensions for splits after merging window options.
+      enforce_side_window(position, snacks_win)
+      return unpack(result, 1, result.n)
+    end
+  end
+  return win
 end
 
 local function snacks()
@@ -523,6 +594,7 @@ local function attach(entry)
       end
 
       local was_focused = entry_focused(entry)
+      remember_side_width(entry.position, terminal)
       local fallback, removed = remove_entry(entry, was_focused)
       without_winleave(function()
         terminal:close()
@@ -538,6 +610,7 @@ local function attach(entry)
     group = lifecycle_group,
     buffer = terminal.buf,
     callback = function()
+      remember_side_width(entry.position, terminal)
       -- BufWipeout runs after Neovim invalidates the terminal window, so retain
       -- whether its buffer was current while it is still leaving that window.
       entry.focused_before_wipe = suppress_winleave == 0
@@ -613,6 +686,7 @@ function M.new(cmd, opts)
 
   local terminal
   without_winleave(function()
+    remember_visible_side_width(position)
     if foreground then
       hide_visible(position)
     end
@@ -660,6 +734,7 @@ function M.new(cmd, opts)
   without_winleave(function()
     if foreground then
       terminal:show()
+      enforce_side_window(position, terminal)
       terminal:focus()
     else
       terminal:hide()
@@ -680,6 +755,7 @@ function M.close()
   end
 
   entry.intentional_close = true
+  remember_side_width(entry.position, entry.terminal)
   local fallback, removed = remove_entry(entry, true)
   without_winleave(function()
     entry.terminal:close()
@@ -731,6 +807,7 @@ function M.toggle(opts)
 
   local entry = group.terminals[group.active]
   if win_valid(entry.terminal) then
+    remember_side_width(entry.position, entry.terminal)
     without_winleave(function()
       entry.terminal:hide()
     end)

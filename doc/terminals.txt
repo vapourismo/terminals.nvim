@@ -89,9 +89,11 @@ are applied last and cannot be overridden: the resolved creation position,
 disabled folding with manual fold method, the managed `win.wo.winbar`
 expression, and no Normal-mode q mapping. Left and right terminals also enforce
 `win.wo.winfixwidth = false`, so a configured `win.width` sets their initial
-width without preventing later resizing. A per-call position wins over
-`win.position`. A user-provided `win.wo.winbar` is replaced. Escape handling
-uses the Snacks defaults; terminals.nvim does not supply Escape mappings.
+width without preventing later resizing. Their live width is retained when
+managed terminals are created, selected, hidden, or restored. A per-call
+position wins over `win.position`. A user-provided `win.wo.winbar` is replaced.
+Escape handling uses the Snacks defaults; terminals.nvim does not supply Escape
+mappings.
 
 ==============================================================================
 COMMANDS                                                *terminals-commands*
