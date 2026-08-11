@@ -970,6 +970,35 @@ test("renders failed exit statuses beside active and inactive titles", function(
   }, "only the separator between terminal entries should use NormalFloat")
 end)
 
+test("issues INFO notifications for OSC 9 requests", function()
+  cd(directory("osc-9-notifications"))
+  terminals.setup()
+
+  local terminal = terminals.new("focused")
+  local before = #stub.notification_calls
+
+  terminal:request("\027]9;build finished")
+  terminal:request("\027]9;4;1;50")
+  terminal:request("\027]133;A")
+  terminal:request("\027]9;")
+  terminal:request("\027]9")
+
+  same(#stub.notification_calls, before + 3, "only OSC 9 notifications should issue notifications")
+  same(stub.notification_calls[before + 1], {
+    message = "build finished",
+    level = vim.log.levels.INFO,
+    opts = { title = "terminals" },
+  }, "the OSC 9 message should be sent as an INFO notification titled terminals")
+  for index = before + 2, before + 3 do
+    same(stub.notification_calls[index], {
+      message = "a terminal needs attention",
+      level = vim.log.levels.INFO,
+      opts = { title = "terminals" },
+    }, "an absent or empty OSC 9 message should use the default notification body")
+  end
+  same(tab_attention(), false, "a focused OSC 9 notification should not set unread attention")
+end)
+
 test("tracks unread OSC 9 notifications in the winbar", function()
   cd(directory("winbar-attention"))
   terminals.setup()

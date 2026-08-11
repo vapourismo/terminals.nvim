@@ -1,5 +1,6 @@
 local M = {
   notifications = {},
+  notification_calls = {},
   opened = {},
 }
 
@@ -143,13 +144,27 @@ function M.reset()
     end
   end
   M.notifications = {}
+  M.notification_calls = {}
   M.opened = {}
 end
 
 M.notify = {}
 
-function M.notify.error(message)
+local function notify(message, level, opts)
   M.notifications[#M.notifications + 1] = message
+  M.notification_calls[#M.notification_calls + 1] = {
+    message = message,
+    level = level,
+    opts = opts,
+  }
+end
+
+function M.notify.error(message, opts)
+  notify(message, vim.log.levels.ERROR, opts)
+end
+
+function M.notify.info(message, opts)
+  notify(message, vim.log.levels.INFO, opts)
 end
 
 M.terminal = {}

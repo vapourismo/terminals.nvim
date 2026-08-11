@@ -729,6 +729,11 @@ local function notify_error(message)
   snacks().notify.error(message)
 end
 
+---@param message string
+local function notify_info(message)
+  snacks().notify.info(message, { title = "terminals" })
+end
+
 ---@param buf integer
 ---@param position table
 ---@param linewise boolean
@@ -911,8 +916,14 @@ local function attach(entry)
         return
       end
 
-      local message = sequence:match("^\027%]9;(.*)$")
-      if message == nil or message:match("^4;") or entry_focused(entry) then
+      local message = sequence == "\027]9" and "" or sequence:match("^\027%]9;(.*)$")
+      if message == nil or message:match("^4;") then
+        return
+      end
+
+      local focused = entry_focused(entry)
+      notify_info(message ~= "" and message or "a terminal needs attention")
+      if focused then
         return
       end
 

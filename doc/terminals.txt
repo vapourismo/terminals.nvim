@@ -283,12 +283,14 @@ Separators and all remaining winbar space use NormalFloat. WinBarName,
 WinBarNameActive, TermBarStatus, TermBarAttention, and NormalFloat are
 consumed without being defined or overridden.
 
-An OSC 9 notification from an unfocused managed terminal appends a padded !
-box after that terminal's exit-status box, highlighted by TermBarAttention.
-Repeated notifications retain one mark, and focusing the terminal clears it.
-Notifications emitted while the terminal is focused are ignored. OSC 9;4
-progress sequences and unrelated terminal requests do not set attention. The
-notification text is discarded.
+An OSC 9 notification issues an INFO notification titled terminals. Its body
+is the OSC message, or "a terminal needs attention" when that message is absent
+or empty. When emitted by an unfocused managed terminal, it also appends a
+padded ! box after that terminal's exit-status box, highlighted by
+TermBarAttention. Repeated notifications retain one mark, and focusing the
+terminal clears it. Notifications emitted while the terminal is focused do not
+set attention. OSC 9;4 progress sequences and unrelated terminal requests do
+not issue notifications or set attention.
 
                                       *terminals-t-attention* *t:attention*
 The plugin owns the boolean tabpage variable t:attention for use by custom
