@@ -60,6 +60,71 @@ local registry = {}
 ---@type table<string, integer>
 local side_widths = {}
 
+---@param cwd string
+---@param position string
+---@return terminals.Group?
+local function group_for(cwd, position)
+  local position_groups = registry[position]
+  return position_groups and position_groups[cwd] or nil
+end
+
+---@param cwd string
+---@param position string
+---@return terminals.Group
+local function ensure_group(cwd, position)
+  registry[position] = registry[position] or {}
+  registry[position][cwd] = registry[position][cwd] or { terminals = {}, active = 1 }
+  return registry[position][cwd]
+end
+
+---@param cwd string
+---@param position string
+local function delete_group(cwd, position)
+  local position_groups = registry[position]
+  if not position_groups then
+    return
+  end
+
+  position_groups[cwd] = nil
+  if next(position_groups) == nil then
+    registry[position] = nil
+    side_widths[position] = nil
+  end
+end
+
+---@param position? string
+---@return terminals.Entry[]
+local function registry_entries(position)
+  local entries = {}
+  local function append(position_groups)
+    for _, group in pairs(position_groups or {}) do
+      for _, entry in ipairs(group.terminals) do
+        entries[#entries + 1] = entry
+      end
+    end
+  end
+
+  if position then
+    append(registry[position])
+  else
+    for _, position_groups in pairs(registry) do
+      append(position_groups)
+    end
+  end
+  return entries
+end
+
+---@param entries terminals.Entry[]
+---@param target terminals.Entry?
+---@return integer?
+local function entry_index(entries, target)
+  for index, entry in ipairs(entries) do
+    if entry == target then
+      return index
+    end
+  end
+end
+
 local next_count = 0
 local suppress_winleave = 0
 local winbar_expression = "%!v:lua.require'terminals'._winbar()"
@@ -168,14 +233,9 @@ end
 
 local function synchronize_tab_attention()
   local attentive_directories = {}
-  for _, position_groups in pairs(registry) do
-    for cwd, group in pairs(position_groups) do
-      for _, entry in ipairs(group.terminals) do
-        if entry.attention and not entry.removed and buf_valid(entry.terminal) then
-          attentive_directories[cwd] = true
-          break
-        end
-      end
+  for _, entry in ipairs(registry_entries()) do
+    if entry.attention and not entry.removed and buf_valid(entry.terminal) then
+      attentive_directories[entry.cwd] = true
     end
   end
 
@@ -262,8 +322,7 @@ end
 ---@param position string
 ---@return terminals.Group?
 local function prune(cwd, position)
-  local position_groups = registry[position]
-  local group = position_groups and position_groups[cwd] or nil
+  local group = group_for(cwd, position)
   if not group then
     return nil
   end
@@ -287,24 +346,12 @@ local function prune(cwd, position)
   end
 
   if #terminals == 0 then
-    position_groups[cwd] = nil
-    if next(position_groups) == nil then
-      registry[position] = nil
-      side_widths[position] = nil
-    end
+    delete_group(cwd, position)
     return nil
   end
 
   group.terminals = terminals
-  group.active = math.min(old_active, #terminals)
-  if selected and not selected.removed then
-    for index, entry in ipairs(terminals) do
-      if entry == selected then
-        group.active = index
-        break
-      end
-    end
-  end
+  group.active = entry_index(terminals, selected) or math.min(old_active, #terminals)
   return group
 end
 
@@ -324,10 +371,8 @@ local function remember_visible_side_width(position)
     return
   end
   prune_all()
-  for _, group in pairs(registry[position] or {}) do
-    for _, entry in ipairs(group.terminals) do
-      remember_side_width(position, entry.terminal)
-    end
+  for _, entry in ipairs(registry_entries(position)) do
+    remember_side_width(position, entry.terminal)
   end
 end
 
@@ -344,21 +389,13 @@ local function remove_entry(entry, select_fallback)
     vim.cmd.redrawstatus()
   end
 
-  local position_groups = registry[entry.position]
-  local group = position_groups and position_groups[entry.cwd] or nil
+  local group = group_for(entry.cwd, entry.position)
   if not group then
     return nil, false
   end
 
   local selected = group.terminals[group.active]
-  local removed_index
-  for index, candidate in ipairs(group.terminals) do
-    if candidate == entry then
-      removed_index = index
-      break
-    end
-  end
-
+  local removed_index = entry_index(group.terminals, entry)
   if not removed_index then
     return nil, false
   end
@@ -367,11 +404,7 @@ local function remove_entry(entry, select_fallback)
   table.remove(group.terminals, removed_index)
 
   if #group.terminals == 0 then
-    position_groups[entry.cwd] = nil
-    if next(position_groups) == nil then
-      registry[entry.position] = nil
-      side_widths[entry.position] = nil
-    end
+    delete_group(entry.cwd, entry.position)
   elseif select_fallback or selected == entry then
     group.active = removed_index > 1 and removed_index - 1 or 1
   else
@@ -401,13 +434,11 @@ end
 ---@param except? snacks.terminal
 local function hide_visible(position, except)
   prune_all()
-  for _, group in pairs(registry[position] or {}) do
-    for _, entry in ipairs(group.terminals) do
-      local terminal = entry.terminal
-      if terminal ~= except and win_valid(terminal) then
-        remember_side_width(position, terminal)
-        terminal:hide()
-      end
+  for _, entry in ipairs(registry_entries(position)) do
+    local terminal = entry.terminal
+    if terminal ~= except and win_valid(terminal) then
+      remember_side_width(position, terminal)
+      terminal:hide()
     end
   end
 end
@@ -442,14 +473,10 @@ end
 
 ---@param entry terminals.Entry
 local function select_entry(entry)
-  local group = (registry[entry.position] or {})[entry.cwd]
-  if group then
-    for index, candidate in ipairs(group.terminals) do
-      if candidate == entry then
-        group.active = index
-        return
-      end
-    end
+  local group = group_for(entry.cwd, entry.position)
+  local index = group and entry_index(group.terminals, entry) or nil
+  if index then
+    group.active = index
   end
 end
 
@@ -488,13 +515,9 @@ focused_entry = function()
   prune_all()
   local current_win = vim.api.nvim_get_current_win()
   local current_buf = vim.api.nvim_get_current_buf()
-  for _, position_groups in pairs(registry) do
-    for _, group in pairs(position_groups) do
-      for _, entry in ipairs(group.terminals) do
-        if entry.terminal.win == current_win and entry.terminal.buf == current_buf then
-          return entry
-        end
-      end
+  for _, entry in ipairs(registry_entries()) do
+    if entry.terminal.win == current_win and entry.terminal.buf == current_buf then
+      return entry
     end
   end
 end
@@ -644,18 +667,14 @@ local function entry_for_win(win)
     return nil
   end
 
-  for _, position_groups in pairs(registry) do
-    for _, group in pairs(position_groups) do
-      for _, entry in ipairs(group.terminals) do
-        if
-          not entry.removed
-          and entry.terminal.win == win
-          and entry.terminal.buf == buf
-          and buf_valid(entry.terminal)
-        then
-          return entry
-        end
-      end
+  for _, entry in ipairs(registry_entries()) do
+    if
+      not entry.removed
+      and entry.terminal.win == win
+      and entry.terminal.buf == buf
+      and buf_valid(entry.terminal)
+    then
+      return entry
     end
   end
   return nil
@@ -899,15 +918,9 @@ end
 local function visible_entries(position)
   prune_all()
   local entries = {}
-  for entry_position, position_groups in pairs(registry) do
-    if position == nil or position == entry_position then
-      for _, group in pairs(position_groups) do
-        for _, entry in ipairs(group.terminals) do
-          if win_valid(entry.terminal) then
-            entries[#entries + 1] = entry
-          end
-        end
-      end
+  for _, entry in ipairs(registry_entries(position)) do
+    if win_valid(entry.terminal) then
+      entries[#entries + 1] = entry
     end
   end
   return entries
@@ -1112,18 +1125,7 @@ function M.new(cmd, opts)
   end)
   assert(terminal, "Snacks.terminal.open() did not return a terminal")
 
-  local position_groups = registry[position]
-  if not position_groups then
-    position_groups = {}
-    registry[position] = position_groups
-  end
-
-  local group = position_groups[cwd]
-  if not group then
-    group = { terminals = {}, active = 1 }
-    position_groups[cwd] = group
-  end
-
+  local group = ensure_group(cwd, position)
   local entry = {
     cwd = cwd,
     position = position,
