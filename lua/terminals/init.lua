@@ -22,6 +22,7 @@ end
 ---@field _command? table
 
 ---@class terminals.Entry
+---@field owner integer
 ---@field cwd string
 ---@field position string
 ---@field cmd? string|string[]
@@ -53,49 +54,65 @@ end
 ---@type terminals.Config
 local config = vim.deepcopy(defaults)
 
----@type table<string, table<string, terminals.Group>>
+---@type table<integer, table<string, table<string, terminals.Group>>>
 local registry = {}
 
--- Snacks recreates managed splits, so retain user-adjusted side widths across windows.
----@type table<string, integer>
+-- Snacks recreates managed splits, so retain user-adjusted side widths per tab.
+---@type table<integer, table<string, integer>>
 local side_widths = {}
 
+---@param owner integer
 ---@param cwd string
 ---@param position string
 ---@return terminals.Group?
-local function group_for(cwd, position)
-  local position_groups = registry[position]
+local function group_for(owner, cwd, position)
+  local tab_registry = registry[owner]
+  local position_groups = tab_registry and tab_registry[position] or nil
   return position_groups and position_groups[cwd] or nil
 end
 
+---@param owner integer
 ---@param cwd string
 ---@param position string
 ---@return terminals.Group
-local function ensure_group(cwd, position)
-  registry[position] = registry[position] or {}
-  registry[position][cwd] = registry[position][cwd] or { terminals = {}, active = 1 }
-  return registry[position][cwd]
+local function ensure_group(owner, cwd, position)
+  registry[owner] = registry[owner] or {}
+  registry[owner][position] = registry[owner][position] or {}
+  registry[owner][position][cwd] = registry[owner][position][cwd] or { terminals = {}, active = 1 }
+  return registry[owner][position][cwd]
 end
 
+---@param owner integer
 ---@param cwd string
 ---@param position string
-local function delete_group(cwd, position)
-  local position_groups = registry[position]
+local function delete_group(owner, cwd, position)
+  local tab_registry = registry[owner]
+  local position_groups = tab_registry and tab_registry[position] or nil
   if not position_groups then
     return
   end
 
   position_groups[cwd] = nil
   if next(position_groups) == nil then
-    registry[position] = nil
-    side_widths[position] = nil
+    tab_registry[position] = nil
+    if side_widths[owner] then
+      side_widths[owner][position] = nil
+      if next(side_widths[owner]) == nil then
+        side_widths[owner] = nil
+      end
+    end
+  end
+  if next(tab_registry) == nil then
+    registry[owner] = nil
   end
 end
 
+---@param owner integer
 ---@param position? string
 ---@return terminals.Entry[]
-local function registry_entries(position)
+local function registry_entries(owner, position)
   local entries = {}
+  local tab_registry = registry[owner]
   local function append(position_groups)
     for _, group in pairs(position_groups or {}) do
       for _, entry in ipairs(group.terminals) do
@@ -105,9 +122,9 @@ local function registry_entries(position)
   end
 
   if position then
-    append(registry[position])
+    append(tab_registry and tab_registry[position])
   else
-    for _, position_groups in pairs(registry) do
+    for _, position_groups in pairs(tab_registry or {}) do
       append(position_groups)
     end
   end
@@ -232,18 +249,24 @@ local function win_valid(terminal)
 end
 
 local function synchronize_tab_attention()
-  local attentive_directories = {}
-  for _, entry in ipairs(registry_entries()) do
-    if entry.attention and not entry.removed and buf_valid(entry.terminal) then
-      attentive_directories[entry.cwd] = true
-    end
-  end
-
   local changed = false
   for _, tabpage in ipairs(vim.api.nvim_list_tabpages()) do
     local tabnr = vim.api.nvim_tabpage_get_number(tabpage)
     local ok, cwd = pcall(vim.fn.getcwd, -1, tabnr)
-    local attention = ok and attentive_directories[normalize_path(cwd)] == true
+    local effective_cwd = ok and normalize_path(cwd) or nil
+    local attention = false
+    for _, entry in ipairs(registry_entries(tabpage)) do
+      if
+        entry.cwd == effective_cwd
+        and entry.attention
+        and not entry.removed
+        and buf_valid(entry.terminal)
+      then
+        attention = true
+        break
+      end
+    end
+
     local current_ok, current = pcall(vim.api.nvim_tabpage_get_var, tabpage, "attention")
     if not current_ok or current ~= attention then
       vim.api.nvim_tabpage_set_var(tabpage, "attention", attention)
@@ -285,21 +308,24 @@ local function split_winhighlight(value)
   return table.concat(mappings, ",")
 end
 
+---@param owner integer
 ---@param position string
 ---@param terminal snacks.terminal
-local function remember_side_width(position, terminal)
+local function remember_side_width(owner, position, terminal)
   if not is_side(position) or not win_valid(terminal) then
     return
   end
   local ok, width = pcall(vim.api.nvim_win_get_width, terminal.win)
   if ok then
-    side_widths[position] = width
+    side_widths[owner] = side_widths[owner] or {}
+    side_widths[owner][position] = width
   end
 end
 
+---@param owner integer
 ---@param position string
 ---@param terminal snacks.terminal
-local function enforce_side_window(position, terminal)
+local function enforce_side_window(owner, position, terminal)
   if not is_side(position) then
     return
   end
@@ -312,17 +338,19 @@ local function enforce_side_window(position, terminal)
 
   if win_valid(terminal) then
     pcall(vim.api.nvim_set_option_value, "winfixwidth", false, { win = terminal.win })
-    if side_widths[position] then
-      pcall(vim.api.nvim_win_set_width, terminal.win, side_widths[position])
+    local width = side_widths[owner] and side_widths[owner][position] or nil
+    if width then
+      pcall(vim.api.nvim_win_set_width, terminal.win, width)
     end
   end
 end
 
+---@param owner integer
 ---@param cwd string
 ---@param position string
 ---@return terminals.Group?
-local function prune(cwd, position)
-  local group = group_for(cwd, position)
+local function prune(owner, cwd, position)
+  local group = group_for(owner, cwd, position)
   if not group then
     return nil
   end
@@ -346,7 +374,7 @@ local function prune(cwd, position)
   end
 
   if #terminals == 0 then
-    delete_group(cwd, position)
+    delete_group(owner, cwd, position)
     return nil
   end
 
@@ -355,24 +383,28 @@ local function prune(cwd, position)
   return group
 end
 
-local function prune_all()
-  local positions = vim.tbl_keys(registry)
-  for _, position in ipairs(positions) do
-    local directories = vim.tbl_keys(registry[position])
-    for _, cwd in ipairs(directories) do
-      prune(cwd, position)
+---@param owner? integer
+local function prune_all(owner)
+  local owners = owner and { owner } or vim.tbl_keys(registry)
+  for _, tabpage in ipairs(owners) do
+    local tab_registry = registry[tabpage]
+    for _, position in ipairs(vim.tbl_keys(tab_registry or {})) do
+      for _, cwd in ipairs(vim.tbl_keys(tab_registry[position])) do
+        prune(tabpage, cwd, position)
+      end
     end
   end
 end
 
+---@param owner integer
 ---@param position string
-local function remember_visible_side_width(position)
+local function remember_visible_side_width(owner, position)
   if not is_side(position) then
     return
   end
-  prune_all()
-  for _, entry in ipairs(registry_entries(position)) do
-    remember_side_width(position, entry.terminal)
+  prune_all(owner)
+  for _, entry in ipairs(registry_entries(owner, position)) do
+    remember_side_width(owner, position, entry.terminal)
   end
 end
 
@@ -389,7 +421,7 @@ local function remove_entry(entry, select_fallback)
     vim.cmd.redrawstatus()
   end
 
-  local group = group_for(entry.cwd, entry.position)
+  local group = group_for(entry.owner, entry.cwd, entry.position)
   if not group then
     return nil, false
   end
@@ -404,7 +436,7 @@ local function remove_entry(entry, select_fallback)
   table.remove(group.terminals, removed_index)
 
   if #group.terminals == 0 then
-    delete_group(entry.cwd, entry.position)
+    delete_group(entry.owner, entry.cwd, entry.position)
   elseif select_fallback or selected == entry then
     group.active = removed_index > 1 and removed_index - 1 or 1
   else
@@ -430,14 +462,15 @@ local function without_winleave(callback)
   return unpack(result, 2, result.n)
 end
 
+---@param owner integer
 ---@param position string
 ---@param except? snacks.terminal
-local function hide_visible(position, except)
-  prune_all()
-  for _, entry in ipairs(registry_entries(position)) do
+local function hide_visible(owner, position, except)
+  prune_all(owner)
+  for _, entry in ipairs(registry_entries(owner, position)) do
     local terminal = entry.terminal
     if terminal ~= except and win_valid(terminal) then
-      remember_side_width(position, terminal)
+      remember_side_width(owner, position, terminal)
       terminal:hide()
     end
   end
@@ -473,7 +506,7 @@ end
 
 ---@param entry terminals.Entry
 local function select_entry(entry)
-  local group = group_for(entry.cwd, entry.position)
+  local group = group_for(entry.owner, entry.cwd, entry.position)
   local index = group and entry_index(group.terminals, entry) or nil
   if index then
     group.active = index
@@ -485,9 +518,9 @@ local function focus(entry)
   local previous = focused_entry()
   select_entry(entry)
   without_winleave(function()
-    hide_visible(entry.position, entry.terminal)
+    hide_visible(entry.owner, entry.position, entry.terminal)
     entry.terminal:show()
-    enforce_side_window(entry.position, entry.terminal)
+    enforce_side_window(entry.owner, entry.position, entry.terminal)
     entry.terminal:focus()
   end)
   hide_departed_float(previous, entry.position)
@@ -512,10 +545,11 @@ end
 
 ---@return terminals.Entry?
 focused_entry = function()
-  prune_all()
+  local owner = vim.api.nvim_get_current_tabpage()
+  prune_all(owner)
   local current_win = vim.api.nvim_get_current_win()
   local current_buf = vim.api.nvim_get_current_buf()
-  for _, entry in ipairs(registry_entries()) do
+  for _, entry in ipairs(registry_entries(owner)) do
     if entry.terminal.win == current_win and entry.terminal.buf == current_buf then
       return entry
     end
@@ -528,11 +562,12 @@ local function configured_position()
 end
 
 ---@param position? string
----@return string, string, terminals.Entry?
+---@return integer, string, string, terminals.Entry?
 local function applicable_scope(position)
+  local owner = vim.api.nvim_get_current_tabpage()
   local entry = focused_entry()
   local cwd = entry and entry.cwd or neovim_cwd()
-  return cwd, position or (entry and entry.position or configured_position()), entry
+  return owner, cwd, position or (entry and entry.position or configured_position()), entry
 end
 
 ---@param cwd? string
@@ -552,39 +587,89 @@ end
 
 ---@param entry terminals.Entry?
 local function focus_fallback(entry)
-  if entry and not entry.removed and buf_valid(entry.terminal) then
+  if
+    entry
+    and entry.owner == vim.api.nvim_get_current_tabpage()
+    and not entry.removed
+    and buf_valid(entry.terminal)
+  then
     focus(entry)
   end
 end
 
+---@param owner integer
+---@param avoid_position string
+---@return integer?
+local function owner_execution_window(owner, avoid_position)
+  if not vim.api.nvim_tabpage_is_valid(owner) then
+    return nil
+  end
+
+  local avoided = {}
+  for _, entry in ipairs(registry_entries(owner, avoid_position)) do
+    if win_valid(entry.terminal) then
+      avoided[entry.terminal.win] = true
+    end
+  end
+
+  local fallback
+  for _, win in ipairs(vim.api.nvim_tabpage_list_wins(owner)) do
+    if vim.api.nvim_win_is_valid(win) then
+      fallback = fallback or win
+      local ok, win_config = pcall(vim.api.nvim_win_get_config, win)
+      if not avoided[win] and ok and win_config.relative == "" then
+        return win
+      end
+    end
+  end
+  return fallback
+end
+
 ---@param entry terminals.Entry?
 local function show_unfocused_edge_fallback(entry)
-  if not entry or entry.removed or not buf_valid(entry.terminal) then
+  if
+    not entry
+    or entry.removed
+    or not vim.api.nvim_tabpage_is_valid(entry.owner)
+    or not buf_valid(entry.terminal)
+  then
     return
   end
 
   local terminal = entry.terminal
   without_winleave(function()
-    hide_visible(entry.position, terminal)
+    local function show()
+      hide_visible(entry.owner, entry.position, terminal)
 
-    -- A hidden Snacks window normally retains the enter behavior it had at
-    -- creation. Disable it only while restoring a position whose terminal
-    -- exited, so an unfocused edge split stays open without stealing focus.
-    local opts = type(terminal.opts) == "table" and terminal.opts or nil
-    local win = opts and (type(opts.win) == "table" and opts.win or opts) or nil
-    local enter = win and win.enter
-    if win then
-      win.enter = false
-    end
-    local result = pack(pcall(terminal.show, terminal))
-    if win then
-      win.enter = enter
-    end
-    if not result[1] then
-      error(result[2], 0)
+      -- A hidden Snacks window normally retains the enter behavior it had at
+      -- creation. Disable it only while restoring a position whose terminal
+      -- exited, so an unfocused edge split stays open without stealing focus.
+      local opts = type(terminal.opts) == "table" and terminal.opts or nil
+      local win = opts and (type(opts.win) == "table" and opts.win or opts) or nil
+      local enter = win and win.enter
+      if win then
+        win.enter = false
+      end
+      local result = pack(pcall(terminal.show, terminal))
+      if win then
+        win.enter = enter
+      end
+      if not result[1] then
+        error(result[2], 0)
+      end
+
+      enforce_side_window(entry.owner, entry.position, terminal)
     end
 
-    enforce_side_window(entry.position, terminal)
+    if entry.owner == vim.api.nvim_get_current_tabpage() then
+      show()
+      return
+    end
+
+    local execution_win = owner_execution_window(entry.owner, entry.position)
+    if execution_win then
+      vim.api.nvim_win_call(execution_win, show)
+    end
   end)
 end
 
@@ -667,7 +752,8 @@ local function entry_for_win(win)
     return nil
   end
 
-  for _, entry in ipairs(registry_entries()) do
+  local owner = vim.api.nvim_win_get_tabpage(win)
+  for _, entry in ipairs(registry_entries(owner)) do
     if
       not entry.removed
       and entry.terminal.win == win
@@ -685,7 +771,7 @@ end
 function M._winbar()
   local win = tonumber(vim.g.statusline_winid) or 0
   local entry = entry_for_win(win)
-  local group = entry and prune(entry.cwd, entry.position) or nil
+  local group = entry and prune(entry.owner, entry.cwd, entry.position) or nil
   if not group then
     return "%#NormalFloat#%="
   end
@@ -710,8 +796,9 @@ function M._winbar()
   return table.concat(parts)
 end
 
+---@param owner integer
 ---@param position string
-local function window_options(position)
+local function window_options(owner, position)
   local user_win = config.win or {}
   local enforced_wo = {
     foldenable = false,
@@ -735,12 +822,12 @@ local function window_options(position)
     ),
   })
   if is_side(position) then
-    win.width = side_widths[position] or win.width
+    win.width = (side_widths[owner] and side_widths[owner][position]) or win.width
     local on_win = win.on_win
     win.on_win = function(snacks_win)
       local result = on_win and pack(on_win(snacks_win)) or { n = 0 }
       -- Snacks forces fixed dimensions for splits after merging window options.
-      enforce_side_window(position, snacks_win)
+      enforce_side_window(owner, position, snacks_win)
       return unpack(result, 1, result.n)
     end
   end
@@ -913,12 +1000,13 @@ local function selection_reference(selection, cwd)
   return ("%s:%d:%d-%d:%d"):format(relative, first.line, first.column, last.line, last.column)
 end
 
+---@param owner integer
 ---@param position? string
 ---@return terminals.Entry[]
-local function visible_entries(position)
-  prune_all()
+local function visible_entries(owner, position)
+  prune_all(owner)
   local entries = {}
-  for _, entry in ipairs(registry_entries(position)) do
+  for _, entry in ipairs(registry_entries(owner, position)) do
     if win_valid(entry.terminal) then
       entries[#entries + 1] = entry
     end
@@ -1009,7 +1097,7 @@ local function attach(entry)
       local was_focused = consume_departing_focus(entry)
       local was_visible = win_valid(terminal)
       local replace_visible_edge = was_visible and is_split(entry.position)
-      remember_side_width(entry.position, terminal)
+      remember_side_width(entry.owner, entry.position, terminal)
       local fallback, removed = remove_entry(entry, was_focused or replace_visible_edge)
       without_winleave(function()
         terminal:close()
@@ -1027,7 +1115,7 @@ local function attach(entry)
     group = lifecycle_group,
     buffer = terminal.buf,
     callback = function()
-      remember_side_width(entry.position, terminal)
+      remember_side_width(entry.owner, entry.position, terminal)
       -- TermClose and BufWipeout can run after Neovim invalidates the terminal
       -- window, so retain whether its buffer was current while it is leaving.
       entry.focused_before_leave = suppress_winleave == 0
@@ -1083,9 +1171,70 @@ local function attach(entry)
   })
 end
 
+local function detach_closed_tabs()
+  local detached = {}
+  local closed_owners = {}
+  for owner in pairs(registry) do
+    if not vim.api.nvim_tabpage_is_valid(owner) then
+      closed_owners[#closed_owners + 1] = owner
+    end
+  end
+  for _, owner in ipairs(closed_owners) do
+    for _, position_groups in pairs(registry[owner]) do
+      for _, group in pairs(position_groups) do
+        for _, entry in ipairs(group.terminals) do
+          entry.intentional_close = true
+          entry.removed = true
+          entry.focused_before_leave = false
+          entry.attention = false
+          detached[#detached + 1] = entry
+        end
+      end
+    end
+    registry[owner] = nil
+    side_widths[owner] = nil
+  end
+  local stale_width_owners = {}
+  for owner in pairs(side_widths) do
+    if not vim.api.nvim_tabpage_is_valid(owner) then
+      stale_width_owners[#stale_width_owners + 1] = owner
+    end
+  end
+  for _, owner in ipairs(stale_width_owners) do
+    side_widths[owner] = nil
+  end
+
+  if #detached == 0 then
+    return
+  end
+
+  synchronize_tab_attention()
+  vim.cmd.redrawstatus()
+  vim.schedule(function()
+    without_winleave(function()
+      local first_error
+      for _, entry in ipairs(detached) do
+        if buf_valid(entry.terminal) then
+          local ok, err = pcall(entry.terminal.close, entry.terminal)
+          if not ok then
+            first_error = first_error or err
+          end
+        end
+      end
+      if first_error then
+        error(first_error, 0)
+      end
+    end)
+  end)
+end
+
 vim.api.nvim_create_autocmd({ "TabNew", "DirChanged" }, {
   group = lifecycle_group,
   callback = synchronize_tab_attention,
+})
+vim.api.nvim_create_autocmd("TabClosed", {
+  group = lifecycle_group,
+  callback = detach_closed_tabs,
 })
 synchronize_tab_attention()
 
@@ -1101,18 +1250,18 @@ end
 ---@return snacks.terminal
 function M.new(cmd, opts)
   local requested_position = opts and opts.position or nil
-  local base, position, previous = applicable_scope(requested_position)
+  local owner, base, position, previous = applicable_scope(requested_position)
   local cwd = resolve_cwd(opts and opts.cwd, base)
   local foreground = cwd == base
   next_count = next_count + 1
 
   local terminal
   without_winleave(function()
-    remember_visible_side_width(position)
+    remember_visible_side_width(owner, position)
     if foreground then
-      hide_visible(position)
+      hide_visible(owner, position)
     end
-    local win = window_options(position)
+    local win = window_options(owner, position)
     if not foreground then
       win.enter = false
     end
@@ -1125,8 +1274,9 @@ function M.new(cmd, opts)
   end)
   assert(terminal, "Snacks.terminal.open() did not return a terminal")
 
-  local group = ensure_group(cwd, position)
+  local group = ensure_group(owner, cwd, position)
   local entry = {
+    owner = owner,
     cwd = cwd,
     position = position,
     cmd = cmd,
@@ -1145,7 +1295,7 @@ function M.new(cmd, opts)
   without_winleave(function()
     if foreground then
       terminal:show()
-      enforce_side_window(position, terminal)
+      enforce_side_window(owner, position, terminal)
       terminal:focus()
     else
       terminal:hide()
@@ -1166,7 +1316,7 @@ function M.close()
   end
 
   entry.intentional_close = true
-  remember_side_width(entry.position, entry.terminal)
+  remember_side_width(entry.owner, entry.position, entry.terminal)
   local fallback, removed = remove_entry(entry, true)
   without_winleave(function()
     entry.terminal:close()
@@ -1181,8 +1331,8 @@ end
 ---@param opts? terminals.ScopeOptions
 ---@return snacks.terminal?
 local function cycle(offset, opts)
-  local cwd, position = applicable_scope(opts and opts.position or nil)
-  local group = prune(cwd, position)
+  local owner, cwd, position = applicable_scope(opts and opts.position or nil)
+  local group = prune(owner, cwd, position)
   if not group then
     return nil
   end
@@ -1210,15 +1360,15 @@ end
 ---@return snacks.terminal
 function M.toggle(opts)
   local position_override = opts and opts.position or nil
-  local cwd, position = applicable_scope(position_override)
-  local group = prune(cwd, position)
+  local owner, cwd, position = applicable_scope(position_override)
+  local group = prune(owner, cwd, position)
   if not group then
     return M.new(nil, { position = position })
   end
 
   local entry = group.terminals[group.active]
   if win_valid(entry.terminal) then
-    remember_side_width(entry.position, entry.terminal)
+    remember_side_width(entry.owner, entry.position, entry.terminal)
     without_winleave(function()
       entry.terminal:hide()
     end)
@@ -1243,21 +1393,22 @@ function M.send(opts)
     return nil
   end
 
+  local owner = vim.api.nvim_get_current_tabpage()
   local entry
   local target_cwd
   if position then
-    local open = visible_entries(position)
+    local open = visible_entries(owner, position)
     entry = open[1]
     if entry then
       target_cwd = entry.cwd
     else
-      local cwd, resolved_position = applicable_scope(position)
-      local group = prune(cwd, resolved_position)
+      local scope_owner, cwd, resolved_position = applicable_scope(position)
+      local group = prune(scope_owner, cwd, resolved_position)
       entry = group and group.terminals[group.active] or nil
       target_cwd = entry and entry.cwd or cwd
     end
   else
-    local open = visible_entries()
+    local open = visible_entries(owner)
     if #open == 0 then
       notify_error("No open managed terminal exists; specify a position to open one.")
       return nil

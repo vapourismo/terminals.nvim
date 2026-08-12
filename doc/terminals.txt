@@ -14,8 +14,9 @@ CONTENTS                                                *terminals-contents*
 INTRODUCTION                                        *terminals-introduction*
 
 terminals.nvim manages the persistent window objects returned by Snacks
-Terminal. Terminals are ordered by creation time, selected circularly, and
-shared across tab pages. Each normalized working directory and window position
+Terminal. Terminals are ordered by creation time and selected circularly.
+Every terminal belongs permanently to the tabpage where it was created. Each
+owner tabpage, normalized working directory, and window position combination
 has an independent terminal group and active selection.
 
 ==============================================================================
@@ -87,15 +88,17 @@ installing a global mapping. For example: >lua
 Unrelated custom `win.keys` entries are preserved. The following invariants
 are applied last and cannot be overridden: the resolved creation position,
 disabled folding with manual fold method, the managed `win.wo.winbar`
-expression, and no Normal-mode q mapping. Top, bottom, left, and right terminals
-also map both Normal and NormalNC to NormalFloat through `win.wo.winhighlight`,
+expression, and no Normal-mode q mapping. Top, bottom, left, and right
+terminals also map both Normal and NormalNC to NormalFloat through
+`win.wo.winhighlight`,
 so focused and inactive splits use the same background. Conflicting user
 mappings for Normal and NormalNC are replaced while unrelated winhighlight
 mappings are preserved. Floating terminals leave winhighlight unchanged. Left
 and right terminals also enforce `win.wo.winfixwidth = false`, so a configured
 `win.width` sets their initial width without preventing later resizing. Their
-live width is retained when managed terminals are created, selected, hidden, or
-restored. A per-call position wins over `win.position`. A user-provided
+live width is retained independently per tabpage and side when managed
+terminals are created, selected, hidden, or restored. A per-call position wins
+over `win.position`. A user-provided
 `win.wo.winbar` is replaced. Escape handling uses the Snacks defaults;
 terminals.nvim does not supply Escape mappings.
 
@@ -114,18 +117,21 @@ COMMANDS                                                *terminals-commands*
 
                                                        *:TermPrev* *TermPrev*
 :TermPrev
-    Circularly select and focus the previous terminal for the applicable
-    directory and position group. Do nothing when that group has no terminals.
+    Circularly select and focus the previous terminal for the current tab's
+    applicable directory and position group. Do nothing when that group has no
+    terminals.
 
                                                        *:TermNext* *TermNext*
 :TermNext
-    Circularly select and focus the next terminal for the applicable directory
-    and position group. Do nothing when that group has no terminals.
+    Circularly select and focus the next terminal for the current tab's
+    applicable directory and position group. Do nothing when that group has no
+    terminals.
 
                                                    *:TermToggle* *TermToggle*
 :TermToggle
-    Hide or show the selected terminal for the applicable directory and
-    position group. Create a shell terminal when that group has no terminals.
+    Hide or show the selected terminal for the current tab's applicable
+    directory and position group. Create a shell terminal when that group has
+    no terminals.
 
     TermClose, TermPrev, TermNext, and TermToggle take no position arguments.
     They inherit the focused managed terminal's position, or use the
@@ -153,7 +159,8 @@ new({cmd}, {opts})                                   *terminals.new()*
     a shell string, an argv list, or nil. {opts} is optional. {opts.title}
     sets a persistent winbar title, and {opts.cwd} sets the process working
     directory. {opts.position} sets the window position and completes the
-    terminal-group scope. Returns the new Snacks terminal object. For example:
+    terminal-group scope within the current tab. Returns the new Snacks
+    terminal object. For example:
     >lua
 
         require("terminals").new("npm test", {
@@ -177,14 +184,15 @@ new({cmd}, {opts})                                   *terminals.new()*
     directory or position syntax; use this Lua API instead.
 
     If the resolved directory differs from the captured base, the process
-    starts as its target group's active selection, but its window stays hidden
-    and current visible windows remain in place. Toggling from the target
-    directory later reveals the same terminal. If the directories match,
-    new() replaces a visible terminal only at the target position and focuses
-    the new one. An explicit different position therefore opens in the
-    foreground while edge terminals elsewhere remain open. :TermNew and the
-    default new-terminal mapping inherit the focused scope and remain
-    foreground operations.
+    starts as its current-tab target group's active selection, but its window
+    stays hidden and current visible windows remain in place. Toggling from
+    the target directory in that owner tab later reveals the same terminal. If
+    the directories match, new() replaces a visible terminal only at the
+    target position in the current tab and focuses the new one. An explicit
+    different position therefore opens in the foreground while edge terminals
+    elsewhere,
+    including other tabs, remain open. :TermNew and the default new-terminal
+    mapping inherit the focused scope and remain foreground operations.
 
 close()                                            *terminals.close()*
     Destroy the focused managed terminal and return its Snacks object. Returns
@@ -192,17 +200,17 @@ close()                                            *terminals.close()*
 
 prev({opts})                                        *terminals.prev()*
 next({opts})                                        *terminals.next()*
-    Circularly select and focus a terminal for the applicable directory and
-    position group. {opts} is optional; {opts.position} targets a position.
-    Without it, use the focused managed terminal's position, or the configured
-    default outside one. Return the Snacks object, or nil when the exact group
-    has no terminals.
+    Circularly select and focus a terminal for the current tab's applicable
+    directory and position group. {opts} is optional; {opts.position} targets
+    a position. Without it, use the focused managed terminal's position, or
+    the configured default outside one. Return the Snacks object, or nil when
+    the exact current-tab group has no terminals.
 
 toggle({opts})                                    *terminals.toggle()*
     Hide or show the selected terminal and return its Snacks object. {opts} is
     optional; {opts.position} targets a position using the same resolution as
-    prev() and next(). If that exact group is empty, create and return a new
-    shell terminal at the resolved position.
+    prev() and next(). If that exact current-tab group is empty, create and
+    return a new shell terminal at the resolved position.
 
 send({opts})                                        *terminals.send()*
     Capture the active characterwise or linewise Visual selection, focus a
@@ -211,17 +219,18 @@ send({opts})                                        *terminals.send()*
     submitted. {opts} is optional; {opts.position} may be "float", "top",
     "bottom", "left", or "right".
 
-    Without {opts.position}, all managed terminals with valid windows are
-    candidates, regardless of cwd or focus. Exactly one is focused and used.
-    No candidates reports an error without creating a terminal; multiple
-    candidates reports ambiguity and requires a position.
+    Without {opts.position}, all managed terminals with valid windows in the
+    current tab are candidates, regardless of cwd or focus. Exactly one is
+    focused and used. No candidates reports an error without creating a
+    terminal; multiple candidates reports ambiguity and requires a position.
 
-    With {opts.position}, a visible terminal at that position is used even if
-    it belongs to another cwd. If none is visible there, send() restores the
-    active terminal in the applicable `(cwd, position)` group. It creates and
-    focuses a shell terminal at that position only when the exact group is
-    empty. The applicable cwd follows the same scope resolution used by
-    toggle().
+    With {opts.position}, a visible terminal at that position in the current
+    tab is used even if it belongs to another cwd. If none is visible there,
+    send() restores the active terminal in the current tab's applicable
+    `(cwd, position)` group. It creates and focuses a shell terminal at that
+    position only when the exact current-tab group is empty. The applicable
+    cwd follows the same scope resolution used by toggle(). Terminals in other
+    tabs are ignored.
 
     The location is relative to the target terminal's cwd. Endpoints are
     inclusive and columns are 1-based byte columns: >
@@ -243,36 +252,40 @@ send({opts})                                        *terminals.send()*
 ==============================================================================
 BEHAVIOR                                               *terminals-behavior*
 
-Each `(normalized cwd, position)` pair owns an ordered group and active
-selection. Directories are normalized without resolving symbolic links. While
-a managed terminal is focused, actions use its directory and, unless
-explicitly targeted, its position. Outside a managed terminal they use
-vim.fn.getcwd() and the configured default position at invocation. Commands
-use this implicit resolution. The registry itself is global, so all tab pages
-share the groups.
+Each `(owner tabpage, normalized cwd, position)` combination owns an ordered
+group and active selection. Directories are normalized without resolving
+symbolic links. While a managed terminal is focused, actions use its directory
+and, unless explicitly targeted, its position. Outside a managed terminal they
+use vim.fn.getcwd() and the configured default position at invocation.
+Commands use this implicit resolution in the current tab. Terminal objects,
+lists, and selections are never shared or adopted across tabpages.
 
 An explicit {opts.cwd} changes both the new process directory and its group.
 Relative values are resolved from the focused terminal's group, or from
 vim.fn.getcwd() outside a managed terminal. Absolute values are normalized
 directly. Without {opts.cwd}, a new terminal inherits the focused terminal's
 group or uses vim.fn.getcwd() outside one. Equivalent normalized absolute
-paths share a group only when the resolved position also matches.
+paths share a group only when both the owner tabpage and resolved position
+also match.
 
 Creating a terminal whose resolved directory matches the applicable directory
-hides any visible terminal at its target position, then shows and focuses the
-new one. Terminals at other edge positions remain open. If the directories
-differ, the new terminal starts hidden as the target group's active selection,
-preserving the current window and all visible managed terminals. Selecting or
-toggling a terminal replaces visibility only within its target position.
+hides any visible terminal at its target position in the current tab, then
+shows and focuses the new one. Terminals at other edge positions and all edge
+windows in other tabs remain open. If the directories differ, the new terminal
+starts hidden as the current tab's target-group active selection, preserving
+the current window and all visible managed terminals. Selecting or toggling a
+terminal replaces visibility only within its owner tab and target position.
 
-Leaving a managed float hides only that window. Edge-positioned terminals stay
-visible when focus moves elsewhere. Hiding always retains the buffer and
-terminal process; selecting it again restores the same Snacks object.
+Leaving a managed float hides only that window. Switching tabs from a focused
+float therefore hides it; returning to its owner tab and toggling restores the
+same Snacks object. Edge-positioned terminals stay visible across focus and
+tab changes. Hiding always retains the buffer and terminal process.
 
-Every managed terminal has a left-aligned winbar listing its exact directory
-and position group's terminals in creation order. A non-nil {opts.title},
-including an empty string, is authoritative for that terminal's lifetime.
-Otherwise, the title comes from the terminal's creation command. Shell strings
+Every managed terminal has a left-aligned winbar listing its exact owner-tab,
+directory, and position group's terminals in creation order. A non-nil
+{opts.title}, including an empty string, is authoritative for that terminal's
+lifetime. Otherwise, the title comes from the terminal's creation command.
+Shell strings
 are displayed directly, argv lists are joined with single spaces without shell
 quoting, and a terminal created without a command is labeled `terminal`. The
 selected title uses WinBarNameActive; other titles use WinBarName. Each title
@@ -301,37 +314,43 @@ not issue notifications or set attention.
 
                                       *terminals-t-attention* *t:attention*
 The plugin owns the boolean tabpage variable t:attention for use by custom
-tablines. It is true when at least one valid managed terminal for the
-tabpage's normalized working directory has unread attention, across all
-terminal positions, and false otherwise. A tabpage-local :tcd directory takes
-precedence over the global directory. Window-local :lcd directories are
-ignored. Tabpages that share a directory share its aggregate attention state.
+tablines. It is true when at least one valid terminal owned by that tabpage
+has unread attention and its cwd matches the tabpage's normalized working
+directory, across all terminal positions. It is false otherwise. A
+tabpage-local :tcd directory takes precedence over the global directory.
+Window-local :lcd directories are ignored. Tabpages that share a directory
+still have independent attention state.
 
 Wiping a terminal buffer removes the corresponding object from the registry.
 TermClose closes the object and terminates its process without reporting the
 expected process termination as an error. The Lua close() API and default
-<D-w> mapping are silent in the same way. A spontaneous non-zero process exit
-still reports an error and preserves the terminal for inspection; a zero exit
-closes and removes it.
+<D-w> mapping are silent in the same way. Closing a tabpage also intentionally
+closes every terminal it owns, including hidden and failed terminals,
+terminates running jobs, and wipes retained buffers without reporting expected
+termination errors. Terminals in remaining tabs are unaffected. A spontaneous
+non-zero process exit still reports an error and preserves the terminal for
+inspection; a zero exit closes and removes it.
 
 When the removed terminal was focused, its immediate predecessor in creation
-order from the same directory and position is selected and focused. If there
-is no predecessor, its immediate successor from that exact group is used. A
-fallback is never selected from another directory or position. When a visible
-but unfocused edge terminal exits successfully, the same adjacent fallback is
-shown in its position and the previously focused editor or other window keeps
-focus. A hidden terminal that exits successfully is removed without showing a
-fallback or changing focus. If the group becomes empty, its position closes,
-focus remains in Neovim's remaining window, and no replacement terminal is
-created.
+order from the same owner tab, directory, and position is selected and
+focused. If there is no predecessor, its immediate successor from that exact
+group is used. A fallback is never selected from another tab, directory, or
+position.
+When a visible but unfocused edge terminal exits successfully, the same
+adjacent fallback is shown in its owner tab and the previously focused editor
+or other window keeps focus. This also applies while the owner tab is
+inactive, without switching the active tab or stealing focus. A hidden
+terminal that exits successfully is removed without showing a fallback or
+changing focus. If the group becomes empty, its position closes, focus remains
+in Neovim's remaining window, and no replacement terminal is created.
 
 TermSend captures its Visual selection and named source path before changing
-windows. Without a position it considers only managed terminals whose windows
-are currently open; hidden terminal buffers are not candidates. With a
-position, visibility is checked globally before the applicable directory group
-is restored or created. Delivery always focuses the resolved terminal and
-writes the reference directly with nvim_chan_send(), without a trailing
-newline.
+windows. Without a position it considers only managed terminals in the current
+tab whose windows are currently open; hidden terminal buffers are not
+candidates. With a position, visibility is checked only in the current tab
+before that tab's applicable directory group is restored or created. Delivery
+always focuses the resolved current-tab terminal and writes the reference
+directly with nvim_chan_send(), without a trailing newline.
 
 No global mappings are installed. Managed terminal buffers use the
 configurable action mappings described in |terminals-setup| and inherit
