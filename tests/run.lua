@@ -113,6 +113,17 @@ local function select_visual(buf, mode, start_line, start_col, end_line, end_col
   same(vim.fn.mode(1), mode, "the test selection should remain active")
 end
 
+local function with_cleanup(callback, cleanup)
+  local ok, err = xpcall(callback, debug.traceback)
+  local cleanup_ok, cleanup_err = pcall(cleanup)
+  if not ok then
+    error(err, 0)
+  end
+  if not cleanup_ok then
+    error(cleanup_err, 0)
+  end
+end
+
 local function with_channel_mocks(channels, callback, send_impl)
   local get_option_value = vim.api.nvim_get_option_value
   local chan_send = vim.api.nvim_chan_send
@@ -147,11 +158,42 @@ test("registers commands and forwards command forms", function()
   same(commands.TermNew.complete, "shellcmd", "TermNew should use shell command completion")
   same(commands.TermSend.nargs, "?", "TermSend should accept an optional position")
   same(commands.TermSend.range, ".", "TermSend should accept a Visual range")
+  for _, name in ipairs({ "TermClose", "TermPrev", "TermNext", "TermToggle" }) do
+    same(commands[name].nargs, "0", name .. " should reject arguments")
+  end
   same(
     vim.fn.getcompletion("TermSend ", "cmdline"),
     { "float", "top", "bottom", "left", "right" },
     "TermSend should complete supported positions"
   )
+  same(vim.fn.getcompletion("TermSend r", "cmdline"), { "right" }, "TermSend should filter completion by prefix")
+  same(vim.fn.getcompletion("TermSend x", "cmdline"), {}, "TermSend should reject unknown completion prefixes")
+
+  local command_calls = {}
+  local command_methods = { "close", "prev", "next", "toggle" }
+  local originals = {}
+  for _, method in ipairs(command_methods) do
+    originals[method] = terminals[method]
+    terminals[method] = function(...)
+      command_calls[#command_calls + 1] = { method = method, argc = select("#", ...) }
+    end
+  end
+  with_cleanup(function()
+    vim.cmd("TermClose")
+    vim.cmd("TermPrev")
+    vim.cmd("TermNext")
+    vim.cmd("TermToggle")
+  end, function()
+    for _, method in ipairs(command_methods) do
+      terminals[method] = originals[method]
+    end
+  end)
+  same(command_calls, {
+    { method = "close", argc = 0 },
+    { method = "prev", argc = 0 },
+    { method = "next", argc = 0 },
+    { method = "toggle", argc = 0 },
+  }, "argument-free commands should dispatch to their matching Lua APIs")
 
   local send_calls = {}
   local send = terminals.send
@@ -204,6 +246,17 @@ test("formats Visual locations with line and byte-column ranges", function()
       same(sent[index], { channel = 101, data = case[6] }, "formatted Visual reference " .. index)
       current_is(terminal)
     end
+
+    select_visual(buf, "v", 4, 1, 4, 1)
+    vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", true, false, true), "nx", false)
+    vim.fn.setpos("'<", { 0, 4, 1, 0 })
+    vim.fn.setpos("'>", { 0, 4, vim.v.maxcol, 0 })
+    same(
+      terminals.send({ position = "left", _command = { range = 2, line1 = 4, line2 = 4 } }),
+      terminal,
+      "a max-column command mark should resolve to the line end"
+    )
+    same(sent[#sent], { channel = 101, data = "source.lua:4" }, "max-column marks should use the short line form")
   end)
   terminal:hide()
 end)
@@ -284,6 +337,85 @@ test("targets visible, hidden, and empty position groups for delivery", function
   end)
 end)
 
+test("makes a visible TermSend target the active terminal", function()
+  local terminal_dir = directory("send-visible-active-terminal")
+  local source_dir = directory("send-visible-active-source")
+  cd(terminal_dir)
+  terminals.setup()
+
+  vim.api.nvim_set_hl(0, "WinBarName", { fg = "#aaaaaa" })
+  vim.api.nvim_set_hl(0, "WinBarNameActive", { fg = "#ffffff" })
+  local visible = terminals.new("visible", { position = "top" })
+  vim.api.nvim_set_current_win(main_win)
+  cd(source_dir)
+  local background = terminals.new("background", { cwd = terminal_dir, position = "top" })
+  falsy(background:win_valid(), "the newer cross-directory terminal should start hidden")
+  truthy(visible:win_valid(), "background creation should leave the older terminal visible")
+
+  local buf = source_buffer(source_dir, "active.lua", { "selected" })
+  with_channel_mocks({ [visible.buf] = 250 }, function(sent)
+    select_visual(buf, "V", 1, 1, 1, 1)
+    same(terminals.send({ position = "top" }), visible, "the visible terminal should win explicit targeting")
+    same(sent, {
+      { channel = 250, data = "../send-visible-active-source/active.lua:1" },
+    }, "the visible target should receive the selection")
+    current_is(visible)
+  end)
+
+  local rendered = eval_winbar(visible, 28)
+  same(rendered.str, " visible   background " .. string.rep(" ", 6), "the focused send target should be selected")
+  same(highlight_spans(rendered), {
+    { group = "WinBarNameActive", start = 0 },
+    { group = "NormalFloat", start = 9 },
+    { group = "WinBarName", start = 10 },
+    { group = "NormalFloat", start = 22 },
+  }, "TermSend should move the active winbar highlight to its visible target")
+  same(terminals.next(), background, "cycling should continue from the visible send target")
+  current_is(background)
+  background:hide()
+end)
+
+test("rejects non-Visual, stale, and malformed command selections", function()
+  local dir = directory("send-command-errors")
+  cd(dir)
+  local terminal = terminals.new("target", { position = "bottom" })
+  local buf = source_buffer(dir, "command-errors.lua", { "alpha", "beta" })
+  local focus_count = terminal.focus_count
+  local opened = #stub.opened
+
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", true, false, true), "nx", false)
+  vim.cmd("TermSend bottom")
+  same(stub.notifications[#stub.notifications], "TermSend must be called from Visual mode.", "a command without a Visual range should notify")
+
+  same(terminals.send({ position = "bottom" }), nil, "the Lua API should reject Normal mode")
+  same(
+    stub.notifications[#stub.notifications],
+    "A characterwise or linewise Visual selection is required.",
+    "the Lua API should explain its required selection mode"
+  )
+
+  select_visual(buf, "v", 1, 1, 1, 2)
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", true, false, true), "nx", false)
+  vim.cmd("2,2TermSend bottom")
+  same(stub.notifications[#stub.notifications], "TermSend must be called from Visual mode.", "a stale command range should notify")
+
+  select_visual(buf, "v", 1, 1, 1, 1)
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", true, false, true), "nx", false)
+  vim.fn.setpos("'<", { 0, 1, 1, 0 })
+  vim.fn.setpos("'>", { 0, 1, 99, 0 })
+  same(
+    terminals.send({ position = "bottom", _command = { range = 2, line1 = 1, line2 = 1 } }),
+    nil,
+    "a command endpoint beyond the line should fail"
+  )
+  same(stub.notifications[#stub.notifications], "Visual selection is missing or invalid.", "a malformed endpoint should notify")
+
+  same(terminal.focus_count, focus_count, "selection validation failures should not focus a target")
+  same(vim.api.nvim_get_current_win(), main_win, "selection validation failures should preserve editor focus")
+  same(#stub.opened, opened, "selection validation failures should not create terminals")
+  terminal:hide()
+end)
+
 test("rejects invalid selections and reports channel delivery failures", function()
   local dir = directory("send-errors")
   cd(dir)
@@ -316,6 +448,27 @@ test("rejects invalid selections and reports channel delivery failures", functio
     same(terminals.send({ position = "bottom" }), nil, "an invalid terminal channel should fail")
     same(stub.notifications[#stub.notifications], "Managed terminal has no valid channel.", "an invalid channel should notify")
     current_is(terminal)
+  end)
+
+  for _, invalid_channel in ipairs({ false, "301", 1.5, -1 }) do
+    select_visual(buf, "V", 1, 1, 1, 1)
+    with_channel_mocks({ [terminal.buf] = invalid_channel }, function(sent)
+      same(terminals.send({ position = "bottom" }), nil, "a non-positive integer channel should fail")
+      same(#sent, 0, "an invalid channel should not receive data")
+      same(stub.notifications[#stub.notifications], "Managed terminal has no valid channel.", "an invalid channel should notify")
+      current_is(terminal)
+    end)
+  end
+
+  select_visual(buf, "V", 1, 1, 1, 1)
+  with_channel_mocks(setmetatable({}, {
+    __index = function()
+      error("channel lookup failed", 0)
+    end,
+  }), function(sent)
+    same(terminals.send({ position = "bottom" }), nil, "a channel lookup error should fail")
+    same(#sent, 0, "a failed channel lookup should not write data")
+    same(stub.notifications[#stub.notifications], "Managed terminal has no valid channel.", "a lookup error should notify")
   end)
 
   select_visual(buf, "V", 2, 1, 2, 1)
@@ -503,6 +656,35 @@ test("does not restore visible unfocused floats after successful exits", functio
   falsy(exiting:buf_valid(), "the exited float should be destroyed")
   falsy(fallback:win_valid(), "an unfocused float should remain hidden after the visible float exits")
   same(vim.api.nvim_get_current_win(), main_win, "the float exit should leave focus in the editor")
+end)
+
+test("handles unfocused edge exits without an adjacent predecessor", function()
+  cd(directory("edge-exit-boundaries"))
+  terminals.setup()
+
+  local single = terminals.new("single", { position = "bottom" })
+  local opened = #stub.opened
+  vim.api.nvim_set_current_win(main_win)
+  vim.wait(20, function()
+    return false
+  end)
+  single:exit(0)
+  falsy(single:buf_valid(), "a lone successful edge terminal should be destroyed")
+  same(#stub.opened, opened, "a lone edge exit should not create a replacement")
+  same(vim.api.nvim_get_current_win(), main_win, "a lone unfocused edge exit should preserve editor focus")
+
+  local first = terminals.new("first", { position = "top" })
+  local successor = terminals.new("successor", { position = "top" })
+  same(terminals.prev({ position = "top" }), first, "the first terminal should be visible before exiting")
+  vim.api.nvim_set_current_win(main_win)
+  vim.wait(20, function()
+    return false
+  end)
+  first:exit(0)
+  falsy(first:buf_valid(), "the first terminal should be destroyed after a successful exit")
+  truthy(successor:win_valid(), "a successor should replace an exited terminal without a predecessor")
+  same(vim.api.nvim_get_current_win(), main_win, "showing the successor should not steal editor focus")
+  same(terminals.next({ position = "top" }), successor, "the successor should remain the selected fallback")
 end)
 
 test("retains hidden failed exits for inspection without stealing focus", function()
@@ -884,6 +1066,32 @@ test("uses a focused overridden group for cycling and toggling", function()
   current_is(editor_terminal)
 end)
 
+test("returns an empty winbar for missing, unmanaged, and stale windows", function()
+  cd(directory("winbar-invalid-windows"))
+  terminals.setup()
+  local terminal = terminals.new("managed")
+  local stale_win = terminal.win
+  local had_statusline_winid = vim.fn.exists("g:statusline_winid") == 1
+  local previous_statusline_winid = vim.g.statusline_winid
+
+  with_cleanup(function()
+    vim.g.statusline_winid = "not-a-window"
+    same(terminals._winbar(), "%#NormalFloat#%=", "a non-numeric target should render only the fill")
+    vim.g.statusline_winid = main_win
+    same(terminals._winbar(), "%#NormalFloat#%=", "an unmanaged editor window should render only the fill")
+
+    terminal:hide()
+    vim.g.statusline_winid = stale_win
+    same(terminals._winbar(), "%#NormalFloat#%=", "a stale managed window id should render only the fill")
+  end, function()
+    if had_statusline_winid then
+      vim.g.statusline_winid = previous_statusline_winid
+    else
+      vim.g.statusline_winid = nil
+    end
+  end)
+end)
+
 test("renders command-derived winbar titles and ignores buffer titles", function()
   local dir = directory("winbar-render")
   cd(dir)
@@ -1032,6 +1240,61 @@ test("issues INFO notifications for OSC 9 requests", function()
     }, "an absent or empty OSC 9 message should use the default notification body")
   end
   same(tab_attention(), false, "a focused OSC 9 notification should not set unread attention")
+end)
+
+test("ignores malformed terminal requests and clears attention on direct entry", function()
+  local dir = directory("osc-9-malformed")
+  cd(dir)
+  terminals.setup()
+
+  local terminal = terminals.new("side", { position = "left" })
+  vim.api.nvim_set_current_win(main_win)
+  local notifications = #stub.notification_calls
+  local request_handlers = vim.api.nvim_get_autocmds({
+    event = "TermRequest",
+    group = "terminals.nvim",
+    buffer = terminal.buf,
+  })
+  same(#request_handlers, 1, "a managed terminal should have one lifecycle request handler")
+  local malformed = {
+    false,
+    "not event data",
+    {},
+    { sequence = 9 },
+  }
+  for _, data in ipairs(malformed) do
+    request_handlers[1].callback({
+      buf = terminal.buf,
+      data = data ~= false and data or nil,
+    })
+  end
+  same(#stub.notification_calls, notifications, "malformed requests should not issue notifications")
+  same(tab_attention(), false, "malformed requests should not set attention")
+
+  local background_dir = directory("osc-9-malformed-background")
+  cd(background_dir)
+  local newer = terminals.new("newer", { cwd = vim.fs.normalize(dir), position = "left" })
+  falsy(newer:win_valid(), "a newer terminal in another applicable cwd should start hidden")
+  cd(dir)
+
+  terminal:request("\027]9;ready")
+  same(tab_attention(), true, "a valid unfocused request should set attention")
+  local rendered = eval_winbar(terminal, 24)
+  same(
+    rendered.str,
+    " side  !   newer " .. string.rep(" ", 7),
+    "the unread request should appear before direct entry"
+  )
+
+  vim.api.nvim_set_current_win(terminal.win)
+  same(tab_attention(), false, "entering the terminal window directly should clear attention")
+  rendered = eval_winbar(terminal, 24)
+  same(
+    rendered.str,
+    " side   newer " .. string.rep(" ", 10),
+    "direct entry should remove attention and select the entered terminal"
+  )
+  same(terminals.next(), newer, "cycling should continue from the directly entered terminal")
 end)
 
 test("tracks unread OSC 9 notifications in the winbar", function()
@@ -1375,6 +1638,76 @@ test("hides on WinLeave without terminating and restores later", function()
   same(terminals.toggle(), terminal, "toggle should restore the hidden object")
   same(#stub.opened, opened, "restoring should not create a replacement")
   current_is(terminal)
+end)
+
+test("loads Snacks through require and reports terminal creation failures", function()
+  cd(directory("snacks-loading-errors"))
+  terminals.setup()
+
+  local original_global = _G.Snacks
+  local original_loaded = package.loaded.snacks
+  local original_preload = package.preload.snacks
+
+  local required
+  local dependency_ok
+  local dependency_error
+  with_cleanup(function()
+    _G.Snacks = nil
+    package.loaded.snacks = stub
+    required = terminals.new("required")
+    same(required, stub.opened[#stub.opened], "the plugin should use a require-loaded Snacks module")
+
+    _G.Snacks = nil
+    package.loaded.snacks = nil
+    package.preload.snacks = function()
+      error("Snacks unavailable", 0)
+    end
+    dependency_ok, dependency_error = pcall(terminals.new, "missing")
+  end, function()
+    _G.Snacks = original_global
+    package.loaded.snacks = original_loaded
+    package.preload.snacks = original_preload
+  end)
+  falsy(dependency_ok, "terminal creation should fail when Snacks is unavailable")
+  truthy(
+    tostring(dependency_error):find("terminals.nvim requires folke/snacks.nvim", 1, true),
+    "a missing dependency should produce the documented assertion"
+  )
+
+  same(terminals.toggle(), required, "the require-loaded terminal should remain managed after restoring globals")
+  same(terminals.close(), required, "the restored require-loaded terminal should close normally")
+
+  local original_open = stub.terminal.open
+  local thrown_ok
+  local thrown_error
+  local nil_ok
+  local nil_error
+  with_cleanup(function()
+    stub.terminal.open = function()
+      error("terminal open exploded", 0)
+    end
+    thrown_ok, thrown_error = pcall(terminals.new, "throwing-open")
+    stub.terminal.open = function()
+      return nil
+    end
+    nil_ok, nil_error = pcall(terminals.new, "nil-open")
+  end, function()
+    stub.terminal.open = original_open
+  end)
+
+  falsy(thrown_ok, "Snacks terminal creation errors should propagate")
+  truthy(tostring(thrown_error):find("terminal open exploded", 1, true), "the original open error should be retained")
+  falsy(nil_ok, "a nil Snacks terminal should be rejected")
+  truthy(
+    tostring(nil_error):find("Snacks.terminal.open() did not return a terminal", 1, true),
+    "a nil terminal should produce an explicit assertion"
+  )
+
+  local healthy = terminals.new("healthy")
+  vim.api.nvim_set_current_win(main_win)
+  truthy(vim.wait(100, function()
+    return not healthy:win_valid()
+  end), "an open failure should not leave WinLeave suppression enabled")
 end)
 
 test("provides terminal-scoped action mappings whose callbacks manage terminals", function()

@@ -441,8 +441,22 @@ local function clear_attention(entry)
 end
 
 ---@param entry terminals.Entry
+local function select_entry(entry)
+  local group = (registry[entry.position] or {})[entry.cwd]
+  if group then
+    for index, candidate in ipairs(group.terminals) do
+      if candidate == entry then
+        group.active = index
+        return
+      end
+    end
+  end
+end
+
+---@param entry terminals.Entry
 local function focus(entry)
   local previous = focused_entry()
+  select_entry(entry)
   without_winleave(function()
     hide_visible(entry.position, entry.terminal)
     entry.terminal:show()
@@ -955,6 +969,7 @@ local function attach(entry)
     group = lifecycle_group,
     buffer = terminal.buf,
     callback = function()
+      select_entry(entry)
       clear_attention(entry)
     end,
   })
