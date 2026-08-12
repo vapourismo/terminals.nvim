@@ -730,8 +730,24 @@ local function notify_error(message)
 end
 
 ---@param message string
-local function notify_info(message)
-  snacks().notify.info(message, { title = "terminals" })
+---@param title? string
+local function notify_info(message, title)
+  snacks().notify.info(message, { title = title or "terminals" })
+end
+
+---@param message string
+local function notify_osc(message)
+  local title
+  local candidate, body = message:match("^([^:]*):(.*)$")
+  if candidate then
+    candidate = candidate:match("^%s*(.-)%s*$")
+    if candidate ~= "" then
+      title = candidate
+      message = body:gsub("^%s+", "")
+    end
+  end
+
+  notify_info(message ~= "" and message or "a terminal needs attention", title)
 end
 
 ---@param buf integer
@@ -922,7 +938,7 @@ local function attach(entry)
       end
 
       local focused = entry_focused(entry)
-      notify_info(message ~= "" and message or "a terminal needs attention")
+      notify_osc(message)
       if focused then
         return
       end

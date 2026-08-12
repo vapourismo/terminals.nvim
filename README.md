@@ -229,9 +229,16 @@ terminal entries and the remaining winbar use `NormalFloat`. The plugin
 consumes `WinBarName`, `WinBarNameActive`, `TermBarStatus`, `TermBarAttention`,
 and `NormalFloat` without defining or overriding them.
 
-An OSC 9 notification issues an INFO notification titled `terminals`, using
-its message as the body or `a terminal needs attention` when the message is
-absent or empty. When emitted by an unfocused managed terminal, it also adds a
+An OSC 9 notification issues an INFO notification. Its message may start with
+`<title>:` to set the notification title and remove that prefix from the body.
+Only the first colon is a separator. Surrounding title whitespace and leading
+body whitespace are stripped; additional colons and trailing body whitespace
+are preserved. The prefix is recognized only when its trimmed title is
+non-empty. Otherwise, the complete message remains the body and the title is
+`terminals`. An absent or empty resulting body becomes
+`a terminal needs attention`, including when a valid title was provided.
+
+When emitted by an unfocused managed terminal, the notification also adds a
 padded `!` box after that terminal's exit-status box, highlighted by
 `TermBarAttention`. Repeated notifications retain a single mark. Focusing the
 terminal clears it, and notifications emitted while the terminal is focused do

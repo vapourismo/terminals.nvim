@@ -978,18 +978,53 @@ test("issues INFO notifications for OSC 9 requests", function()
   local before = #stub.notification_calls
 
   terminal:request("\027]9;build finished")
+  terminal:request("\027]9;Build: finished")
+  terminal:request("\027]9;  Deploy Job  :   phase: complete  ")
+  terminal:request("\027]9;Build:")
+  terminal:request("\027]9;: body")
+  terminal:request("\027]9;   : body")
   terminal:request("\027]9;4;1;50")
   terminal:request("\027]133;A")
   terminal:request("\027]9;")
   terminal:request("\027]9")
 
-  same(#stub.notification_calls, before + 3, "only OSC 9 notifications should issue notifications")
-  same(stub.notification_calls[before + 1], {
-    message = "build finished",
-    level = vim.log.levels.INFO,
-    opts = { title = "terminals" },
-  }, "the OSC 9 message should be sent as an INFO notification titled terminals")
-  for index = before + 2, before + 3 do
+  same(#stub.notification_calls, before + 8, "only OSC 9 notifications should issue notifications")
+  local expected = {
+    {
+      message = "build finished",
+      level = vim.log.levels.INFO,
+      opts = { title = "terminals" },
+    },
+    {
+      message = "finished",
+      level = vim.log.levels.INFO,
+      opts = { title = "Build" },
+    },
+    {
+      message = "phase: complete  ",
+      level = vim.log.levels.INFO,
+      opts = { title = "Deploy Job" },
+    },
+    {
+      message = "a terminal needs attention",
+      level = vim.log.levels.INFO,
+      opts = { title = "Build" },
+    },
+    {
+      message = ": body",
+      level = vim.log.levels.INFO,
+      opts = { title = "terminals" },
+    },
+    {
+      message = "   : body",
+      level = vim.log.levels.INFO,
+      opts = { title = "terminals" },
+    },
+  }
+  for index, notification in ipairs(expected) do
+    same(stub.notification_calls[before + index], notification, "the OSC 9 notification should parse its title and body")
+  end
+  for index = before + 7, before + 8 do
     same(stub.notification_calls[index], {
       message = "a terminal needs attention",
       level = vim.log.levels.INFO,
