@@ -34,6 +34,16 @@ end
 ---@field intentional_close boolean
 ---@field removed boolean
 ---@field focused_before_leave boolean
+---@field window_leave_candidate boolean
+---@field visible_before_leave boolean
+---@field departure_generation integer
+---@field finalization_scheduled boolean
+---@field finalization_done boolean
+---@field finalization_close boolean
+---@field finalization_checktime boolean
+---@field finalization_was_focused boolean
+---@field finalization_was_visible boolean
+---@field terminal_close_started boolean
 
 ---@class terminals.Group
 ---@field terminals terminals.Entry[]
@@ -343,7 +353,10 @@ local function prune(owner, cwd, position)
   local terminals = {}
   local pruned_attention = false
   for _, entry in ipairs(group.terminals) do
-    if not entry.removed and buf_valid(entry.terminal) then
+    if
+      not entry.removed
+      and (buf_valid(entry.terminal) or (entry.finalization_scheduled and not entry.finalization_done))
+    then
       terminals[#terminals + 1] = entry
     else
       pruned_attention = pruned_attention or entry.attention
@@ -521,11 +534,17 @@ local function entry_focused(entry)
 end
 
 ---@param entry terminals.Entry
----@return boolean
-local function consume_departing_focus(entry)
-  local was_focused = entry.focused_before_leave or entry_focused(entry)
+---@return boolean, boolean
+local function consume_departing_state(entry)
+  local invalidated_departure = entry.window_leave_candidate
+    and (not win_valid(entry.terminal) or not buf_valid(entry.terminal))
+  local was_focused = entry.focused_before_leave or entry_focused(entry) or invalidated_departure
+  local was_visible = entry.visible_before_leave or win_valid(entry.terminal)
+  entry.departure_generation = entry.departure_generation + 1
   entry.focused_before_leave = false
-  return was_focused
+  entry.window_leave_candidate = false
+  entry.visible_before_leave = false
+  return was_focused, was_visible
 end
 
 ---@return terminals.Entry?
@@ -1007,15 +1026,129 @@ local function terminal_channel(terminal)
 end
 
 ---@param entry terminals.Entry
+---@param event table
+---@param terminal_buf integer
+local function record_departing_state(entry, event, terminal_buf)
+  local terminal = entry.terminal
+  if
+    suppress_winleave > 0
+    or entry.hiding
+    or entry.intentional_close
+    or entry.removed
+    or event.buf ~= terminal_buf
+  then
+    return
+  end
+
+  local event_name = event.event
+  local current_buffer = vim.api.nvim_get_current_buf()
+  local leaves_current_window = event_name == "WinLeave"
+  if leaves_current_window then
+    -- WinLeave also fires for an ordinary move to the editor. Keep it as a
+    -- candidate until a buffer/window invalidation confirms that lifecycle
+    -- teardown, rather than letting an immediate background exit steal focus.
+    entry.window_leave_candidate = true
+  end
+  local confirms_teardown = event_name == "BufWinLeave" or event_name == "BufWipeout"
+  local was_focused = confirms_teardown
+    and (current_buffer == terminal_buf or entry.window_leave_candidate)
+  local was_visible = leaves_current_window
+    or event_name == "BufLeave"
+    or event_name == "BufWinLeave"
+    or win_valid(terminal)
+
+  entry.focused_before_leave = entry.focused_before_leave or was_focused
+  entry.visible_before_leave = entry.visible_before_leave or was_visible
+  entry.departure_generation = entry.departure_generation + 1
+  local generation = entry.departure_generation
+
+  -- Ordinary focus changes and hides must not make a later background exit look
+  -- focused. Lifecycle events from the same close/wipe transition consume the
+  -- marker before this scheduled reset runs.
+  vim.schedule(function()
+    if entry.departure_generation == generation and not entry.finalization_scheduled then
+      entry.focused_before_leave = false
+      entry.window_leave_candidate = false
+      entry.visible_before_leave = false
+    end
+  end)
+end
+
+---@param entry terminals.Entry
+---@param close_terminal boolean
+---@param checktime boolean
+local function schedule_finalization(entry, close_terminal, checktime)
+  if entry.finalization_done or entry.intentional_close then
+    return
+  end
+
+  local was_focused, was_visible = consume_departing_state(entry)
+  entry.finalization_was_focused = entry.finalization_was_focused or was_focused
+  entry.finalization_was_visible = entry.finalization_was_visible or was_visible
+  entry.finalization_close = entry.finalization_close or close_terminal
+  entry.finalization_checktime = entry.finalization_checktime or checktime
+
+  if entry.finalization_scheduled then
+    return
+  end
+  entry.finalization_scheduled = true
+
+  -- TermClose can still be followed by terminal-mode teardown, window closure,
+  -- and BufWipeout. Wait until that lifecycle stack has unwound before closing
+  -- Snacks or installing the adjacent terminal in the vacated position.
+  vim.schedule(function()
+    if entry.finalization_done or entry.intentional_close then
+      return
+    end
+    entry.finalization_done = true
+
+    local replace_visible_edge = entry.finalization_was_visible and is_split(entry.position)
+    remember_side_width(entry.owner, entry.position, entry.terminal)
+    local fallback, removed = remove_entry(
+      entry,
+      entry.finalization_was_focused or replace_visible_edge
+    )
+
+    local close_error
+    if entry.finalization_close and not entry.terminal_close_started then
+      entry.terminal_close_started = true
+      local ok, err = pcall(function()
+        without_winleave(function()
+          entry.terminal:close()
+        end)
+      end)
+      if not ok then
+        close_error = err
+      end
+    end
+
+    if removed and entry.finalization_was_focused then
+      focus_fallback(fallback)
+    elseif removed and replace_visible_edge then
+      show_unfocused_edge_fallback(fallback)
+    end
+    if entry.finalization_checktime then
+      vim.cmd.checktime()
+    end
+    if close_error then
+      error(close_error, 0)
+    end
+  end)
+end
+
+---@param entry terminals.Entry
 local function attach(entry)
   local terminal = entry.terminal
+  -- Keep the creation-time buffer independently of Snacks' mutable handle so
+  -- late leave/wipe callbacks can still identify this terminal.
+  local terminal_buf = terminal.buf
 
   ---@param events string|string[]
   ---@param callback function
   local function on_terminal_event(events, callback)
     vim.api.nvim_create_autocmd(events, {
       group = lifecycle_group,
-      buffer = terminal.buf,
+      buffer = terminal_buf,
       callback = callback,
     })
   end
@@ -1042,6 +1175,10 @@ local function attach(entry)
   end)
 
   on_terminal_event({ "BufEnter", "WinEnter" }, function()
+    entry.departure_generation = entry.departure_generation + 1
+    entry.focused_before_leave = false
+    entry.window_leave_candidate = false
+    entry.visible_before_leave = false
     select_entry(entry)
     set_attention(entry, false)
   end)
@@ -1062,49 +1199,21 @@ local function attach(entry)
       return
     end
 
-    local was_focused = consume_departing_focus(entry)
-    local was_visible = win_valid(terminal)
-    local replace_visible_edge = was_visible and is_split(entry.position)
-    remember_side_width(entry.owner, entry.position, terminal)
-    local fallback, removed = remove_entry(entry, was_focused or replace_visible_edge)
-    without_winleave(function()
-      terminal:close()
-    end)
-    if removed and was_focused then
-      focus_fallback(fallback)
-    elseif removed and replace_visible_edge then
-      show_unfocused_edge_fallback(fallback)
-    end
-    vim.cmd.checktime()
+    schedule_finalization(entry, true, true)
   end)
 
-  on_terminal_event("BufWinLeave", function()
+  on_terminal_event({ "BufLeave", "BufWinLeave" }, function(event)
     remember_side_width(entry.owner, entry.position, terminal)
-    -- TermClose and BufWipeout can run after Neovim invalidates the terminal
-    -- window, so retain whether its buffer was current while it is leaving.
-    entry.focused_before_leave = suppress_winleave == 0
-      and not entry.hiding
-      and not entry.removed
-      and terminal.buf == vim.api.nvim_get_current_buf()
-
-    -- A later lifecycle event for an already hidden buffer must not reuse it.
-    vim.schedule(function()
-      entry.focused_before_leave = false
-    end)
+    record_departing_state(entry, event, terminal_buf)
   end)
 
-  on_terminal_event("BufWipeout", function()
-    local was_focused = consume_departing_focus(entry)
-    local fallback, removed = remove_entry(entry, was_focused)
-    if removed and was_focused then
-      -- Window changes are unsafe until the wipe autocmd has completed.
-      vim.schedule(function()
-        focus_fallback(fallback)
-      end)
-    end
+  on_terminal_event("BufWipeout", function(event)
+    record_departing_state(entry, event, terminal_buf)
+    schedule_finalization(entry, true, false)
   end)
 
   on_terminal_event("WinLeave", function(event)
+    record_departing_state(entry, event, terminal_buf)
     if entry.position ~= "float" or suppress_winleave > 0 or entry.hiding or entry.removed then
       return
     end
@@ -1244,6 +1353,16 @@ function M.new(cmd, opts)
     intentional_close = false,
     removed = false,
     focused_before_leave = false,
+    window_leave_candidate = false,
+    visible_before_leave = false,
+    departure_generation = 0,
+    finalization_scheduled = false,
+    finalization_done = false,
+    finalization_close = false,
+    finalization_checktime = false,
+    finalization_was_focused = false,
+    finalization_was_visible = false,
+    terminal_close_started = false,
   }
   group.terminals[#group.terminals + 1] = entry
   group.active = #group.terminals

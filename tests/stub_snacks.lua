@@ -91,14 +91,63 @@ function Terminal:close()
   self.close_count = self.close_count + 1
   if self.process_running then
     self.process_running = false
-    vim.api.nvim_exec_autocmds("TermClose", {
-      buffer = self.buf,
-      data = { status = 129 },
-    })
+    if self:buf_valid() then
+      vim.api.nvim_exec_autocmds("TermClose", {
+        buffer = self.buf,
+        data = { status = 129 },
+      })
+    end
   end
   self:hide()
   if self:buf_valid() then
     vim.api.nvim_buf_delete(self.buf, { force = true })
+  end
+  return self
+end
+
+function Terminal:_invalidate_window()
+  local win = self.win
+  -- Snacks can clear its handle before Neovim's leave events reach plugin
+  -- autocmds. Reproduce that ordering rather than using hide().
+  self.win = nil
+  if win and vim.api.nvim_win_is_valid(win) then
+    vim.api.nvim_win_close(win, true)
+  end
+end
+
+function Terminal:_wipe_buffer(clear_handle)
+  local buf = self.buf
+  if clear_handle then
+    -- Snacks may clear its mutable buffer handle before plugin-owned wipe
+    -- callbacks run; the lifecycle autocmd still receives the original id.
+    self.buf = nil
+  end
+  if buf and vim.api.nvim_buf_is_valid(buf) then
+    vim.api.nvim_buf_delete(buf, { force = true })
+  end
+end
+
+function Terminal:eof(opts)
+  if not self.process_running then
+    return self
+  end
+  opts = opts or {}
+  self.process_running = false
+
+  if opts.invalidate_window_first then
+    self:_invalidate_window()
+  end
+
+  if self:buf_valid() then
+    vim.api.nvim_exec_autocmds("TermClose", {
+      buffer = self.buf,
+      data = { status = 0 },
+    })
+  end
+
+  if opts.invalidate_before_deferred then
+    self:_invalidate_window()
+    self:_wipe_buffer(opts.clear_buffer_handle)
   end
   return self
 end
@@ -108,10 +157,12 @@ function Terminal:exit(status)
     return self
   end
   self.process_running = false
-  vim.api.nvim_exec_autocmds("TermClose", {
-    buffer = self.buf,
-    data = { status = status },
-  })
+  if self:buf_valid() then
+    vim.api.nvim_exec_autocmds("TermClose", {
+      buffer = self.buf,
+      data = { status = status },
+    })
+  end
   return self
 end
 

@@ -307,13 +307,15 @@ closes every terminal it owns, including hidden and failed terminals,
 terminates running jobs, and wipes retained buffers without reporting expected
 termination errors. Terminals in remaining tabs are unaffected. A spontaneous
 non-zero process exit still reports an error and preserves the terminal for
-inspection; a zero exit closes and removes it.
+inspection; a zero exit closes and removes it. Ctrl+D is not remapped: it sends
+EOF to the shell, and a resulting successful exit from a focused managed shell
+uses the same adjacent-terminal handoff.
 
-When the removed terminal was focused, its immediate predecessor in creation
-order from the same owner tab, directory, and position is selected and
-focused. If there is no predecessor, its immediate successor from that exact
-group is used. A fallback is never selected from another tab, directory, or
-position.
+When the removed terminal was focused, including when Ctrl+D ended its shell,
+its immediate predecessor in creation order from the same owner tab,
+directory, and position is selected and focused. If there is no predecessor,
+its immediate successor from that exact group is used. A fallback is never
+selected from another tab, directory, or position.
 When a visible but unfocused edge terminal exits successfully, the same
 adjacent fallback is shown in its owner tab and the previously focused editor
 or other window keeps focus. This also applies while the owner tab is

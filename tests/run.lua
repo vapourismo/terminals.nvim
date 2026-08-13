@@ -62,11 +62,17 @@ local function current_is(terminal)
 end
 
 local function eventually_current_is(terminal)
-  truthy(vim.wait(100, function()
+  truthy(vim.wait(200, function()
     return vim.api.nvim_get_current_win() == terminal.win
       and vim.api.nvim_get_current_buf() == terminal.buf
   end), "terminal should eventually be focused")
   current_is(terminal)
+end
+
+local function eventually_invalid(terminal, message)
+  truthy(vim.wait(200, function()
+    return not terminal:buf_valid()
+  end), message or "terminal should eventually be destroyed")
 end
 
 local function set_title(terminal, title)
@@ -525,10 +531,75 @@ test("handles spontaneous process exits by status", function()
   local successful = terminals.new("success")
   local successful_buffer = successful.buf
   successful:exit(0)
-  falsy(vim.api.nvim_buf_is_valid(successful_buffer), "a successful terminal should close automatically")
+  eventually_invalid(successful, "a successful terminal should close automatically")
+  falsy(vim.api.nvim_buf_is_valid(successful_buffer), "the successful terminal buffer should be invalid")
   same(successful.close_count, 1, "a successful terminal should close its Snacks object")
   same(#stub.notifications, notifications + 1, "a zero exit should not notify")
   same(terminals.prev(), nil, "a successful terminal should be removed from the registry")
+end)
+
+test("hands Ctrl+D from a middle terminal to its predecessor", function()
+  cd(directory("ctrl-d-middle"))
+  terminals.setup()
+
+  local first = terminals.new("first")
+  local middle = terminals.new("middle")
+  local newest = terminals.new("newest")
+  same(terminals.prev(), middle, "the middle terminal should be focused before EOF")
+
+  middle:eof({ invalidate_window_first = true })
+  eventually_current_is(first)
+  same(middle.close_count, 1, "Ctrl+D should close the exited Snacks object once")
+  same(terminals.next(), newest, "the exited middle terminal should be removed from cycling")
+end)
+
+test("hands Ctrl+D from the first terminal to its successor", function()
+  cd(directory("ctrl-d-first"))
+  terminals.setup()
+
+  local first = terminals.new("first")
+  local successor = terminals.new("successor")
+  same(terminals.prev(), first, "the first terminal should be focused before EOF")
+
+  first:eof({ invalidate_window_first = true })
+  eventually_current_is(successor)
+  same(first.close_count, 1, "the first terminal should close exactly once")
+  same(terminals.next(), successor, "the successor should be the remaining selection")
+end)
+
+test("closes the only Ctrl+D terminal without creating a replacement", function()
+  cd(directory("ctrl-d-only"))
+  terminals.setup()
+
+  local only = terminals.new("only")
+  local opened = #stub.opened
+  only:eof({ invalidate_window_first = true })
+  eventually_invalid(only, "the lone Ctrl+D terminal should be destroyed")
+
+  same(vim.api.nvim_get_current_win(), main_win, "Ctrl+D should leave Neovim's remaining window focused")
+  same(#stub.opened, opened, "Ctrl+D should not create a replacement for an empty group")
+  same(terminals.next(), nil, "the exited terminal should be removed from cycling")
+end)
+
+test("finalizes a pre-invalidated Ctrl+D terminal exactly once", function()
+  cd(directory("ctrl-d-pre-invalidated"))
+  terminals.setup()
+
+  local fallback = terminals.new("fallback")
+  local exiting = terminals.new("exiting")
+  local focus_count = fallback.focus_count
+
+  exiting:eof({ invalidate_before_deferred = true, clear_buffer_handle = true })
+  falsy(exiting:win_valid(), "the Ctrl+D ordering should invalidate the window before finalization")
+  falsy(exiting:buf_valid(), "the Ctrl+D ordering should wipe the buffer before finalization")
+  eventually_current_is(fallback)
+  vim.wait(20, function()
+    return false
+  end)
+
+  same(exiting.close_count, 1, "TermClose and BufWipeout should close the Snacks object once")
+  same(fallback.focus_count, focus_count + 1, "TermClose and BufWipeout should hand off focus once")
+  same(terminals.next(), fallback, "the pre-invalidated terminal should be absent from cycling")
 end)
 
 test("focuses adjacent terminals after intentional closes", function()
@@ -566,10 +637,10 @@ test("focuses adjacent terminals after successful exits without stealing backgro
   local newest = terminals.new("newest")
   same(terminals.prev(), middle, "the middle terminal should be selectable")
   middle:exit(0)
-  current_is(first)
+  eventually_current_is(first)
 
   first:exit(0)
-  current_is(newest)
+  eventually_current_is(newest)
 
   vim.api.nvim_set_current_win(main_win)
   cd(directory("exit-focus-after-window-close"))
@@ -580,7 +651,7 @@ test("focuses adjacent terminals after successful exits without stealing backgro
   vim.api.nvim_win_close(closing.win, true)
   falsy(closing:win_valid(), "the focused terminal window should close before TermClose")
   closing:exit(0)
-  current_is(before)
+  eventually_current_is(before)
   same(terminals.next(), after, "the predecessor should remain selected after the exit handoff")
   current_is(after)
 
@@ -592,6 +663,7 @@ test("focuses adjacent terminals after successful exits without stealing backgro
   local background_buffer = background.buf
   falsy(background:win_valid(), "the background terminal should be hidden before it exits")
   background:exit(0)
+  eventually_invalid(background, "a hidden successful terminal should be destroyed")
   falsy(vim.api.nvim_buf_is_valid(background_buffer), "a hidden successful terminal should wipe its buffer")
   same(background.close_count, 1, "a hidden successful terminal should close its Snacks object")
   current_is(focused)
@@ -604,6 +676,7 @@ test("focuses adjacent terminals after successful exits without stealing backgro
     return false
   end)
   focused:exit(0)
+  eventually_invalid(focused, "the hidden focused-selection terminal should be destroyed")
   same(vim.api.nvim_get_current_win(), main_win, "a hidden terminal exit should not steal editor focus")
   same(terminals.toggle(), fallback, "a background exit should retain the adjacent selection")
   current_is(fallback)
@@ -625,6 +698,7 @@ test("replaces visible unfocused edge terminals after successful exits", functio
   same(tab_attention(), true, "the hidden fallback should retain its unread attention")
   vim.api.nvim_set_current_win(main_win)
   exiting:exit(0)
+  eventually_invalid(exiting, "the exited edge terminal should be destroyed")
 
   falsy(vim.api.nvim_buf_is_valid(exiting_buffer), "the exited edge terminal should wipe its buffer")
   same(exiting.close_count, 1, "the exited edge terminal should close its Snacks object")
@@ -652,8 +726,9 @@ test("does not restore visible unfocused floats after successful exits", functio
   vim.api.nvim_win_call(main_win, function()
     exiting:exit(0)
   end)
+  eventually_invalid(exiting, "the exited float should be destroyed")
 
-  falsy(exiting:buf_valid(), "the exited float should be destroyed")
+  falsy(exiting:buf_valid(), "the exited float should stay destroyed")
   falsy(fallback:win_valid(), "an unfocused float should remain hidden after the visible float exits")
   same(vim.api.nvim_get_current_win(), main_win, "the float exit should leave focus in the editor")
 end)
@@ -669,7 +744,8 @@ test("handles unfocused edge exits without an adjacent predecessor", function()
     return false
   end)
   single:exit(0)
-  falsy(single:buf_valid(), "a lone successful edge terminal should be destroyed")
+  eventually_invalid(single, "a lone successful edge terminal should be destroyed")
+  falsy(single:buf_valid(), "the lone successful edge terminal should stay destroyed")
   same(#stub.opened, opened, "a lone edge exit should not create a replacement")
   same(vim.api.nvim_get_current_win(), main_win, "a lone unfocused edge exit should preserve editor focus")
 
@@ -681,7 +757,8 @@ test("handles unfocused edge exits without an adjacent predecessor", function()
     return false
   end)
   first:exit(0)
-  falsy(first:buf_valid(), "the first terminal should be destroyed after a successful exit")
+  eventually_invalid(first, "the first terminal should be destroyed after a successful exit")
+  falsy(first:buf_valid(), "the first terminal should stay destroyed")
   truthy(successor:win_valid(), "a successor should replace an exited terminal without a predecessor")
   same(vim.api.nvim_get_current_win(), main_win, "showing the successor should not steal editor focus")
   same(terminals.next({ position = "top" }), successor, "the successor should remain the selected fallback")
@@ -888,6 +965,7 @@ test("isolates navigation, visibility, winbars, and fallback by position", funct
   local top = terminals.new("top-only", { position = "top" })
   right_focus_count = right_one.focus_count
   top:exit(0)
+  eventually_invalid(top, "the successful top terminal should be destroyed")
   same(right_one.focus_count, right_focus_count, "a successful exit should not focus another position")
   truthy(right_one:win_valid(), "another position should remain visible after the top group exits")
 end)
@@ -1375,14 +1453,18 @@ test("clears tabpage attention when attentive terminals exit or are wiped", func
   successful:request("\027]9;successful finished")
   same(tab_attention(), true, "a background terminal should mark the tabpage")
   successful:exit(0)
-  same(tab_attention(), false, "a successful exit should clear its last attention")
+  truthy(vim.wait(200, function()
+    return tab_attention() == false
+  end), "a successful exit should eventually clear its last attention")
 
   local wiped = terminals.new("wiped")
   same(terminals.prev(), kept, "the retained terminal should provide background focus")
   wiped:request("\027]9;wiped finished")
   same(tab_attention(), true, "the terminal to wipe should mark the tabpage")
   vim.api.nvim_buf_delete(wiped.buf, { force = true })
-  same(tab_attention(), false, "wiping the last attentive terminal should clear the tabpage")
+  truthy(vim.wait(200, function()
+    return tab_attention() == false
+  end), "wiping the last attentive terminal should eventually clear the tabpage")
 
   local pruned = terminals.new("pruned")
   same(terminals.prev(), kept, "the retained terminal should stay available for pruning")
@@ -1566,6 +1648,7 @@ test("removes closed, exited, and wiped terminals from the winbar", function()
   local successful = terminals.new("successful")
   set_title(successful, "successful")
   successful:exit(0)
+  eventually_invalid(successful, "the successful terminal should leave the winbar")
   rendered = eval_winbar(first, 20)
   same(rendered.str, " first " .. string.rep(" ", 13), "a successful exit should disappear from the winbar")
 
@@ -1772,8 +1855,9 @@ test("restores an inactive owner tab's edge fallback without stealing focus", fu
   local active_win = vim.api.nvim_get_current_win()
 
   exiting:exit(0)
+  eventually_invalid(exiting, "the inactive tab's successful terminal should be destroyed")
 
-  falsy(exiting:buf_valid(), "the inactive tab's successful terminal should be destroyed")
+  falsy(exiting:buf_valid(), "the inactive tab's successful terminal should stay destroyed")
   truthy(fallback:win_valid(), "the adjacent fallback should be restored in the inactive owner tab")
   same(vim.api.nvim_win_get_tabpage(fallback.win), owner_tab, "the fallback window should be recreated in its owner tab")
   same(vim.api.nvim_get_current_tabpage(), active_tab, "inactive fallback restoration should not switch tabs")
@@ -2103,6 +2187,7 @@ test("keeps side terminal widths resizable", function()
 
     vim.api.nvim_set_current_win(editor_win)
     replacement:exit(0)
+    eventually_invalid(replacement, position .. " successful exit should destroy the replaced terminal")
     truthy(terminal:win_valid(), position .. " successful exit should show the adjacent terminal")
     same(
       vim.api.nvim_win_get_width(terminal.win),

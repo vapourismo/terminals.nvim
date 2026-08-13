@@ -245,13 +245,16 @@ have independent attention state.
 Intentional closes through `close()`, `:TermClose`, or the default `<D-w>`
 mapping are silent. A command that exits unsuccessfully still reports its exit
 status and keeps the terminal open for inspection; a successful exit closes it.
-When a focused terminal is closed, exits successfully, or is wiped, its
-immediate predecessor in the same owner tab's `(cwd, position)` group is
-focused. If it has no predecessor, the immediate successor from that exact
-group is focused instead. When a visible but unfocused edge terminal exits
-successfully, the same adjacent fallback replaces it in its owner tab while the
-previously focused editor or other window keeps focus. This also works when the
-owner tab is inactive, without switching tabs or stealing focus. A hidden
+`Ctrl+D` is not remapped: it continues to send EOF to the shell, and when that
+ends a focused managed shell successfully it triggers the same adjacent-terminal
+handoff. When a focused terminal is closed, exits successfully (including via
+`Ctrl+D`), or is wiped, its immediate predecessor in the same owner tab's
+`(cwd, position)` group is focused. If it has no predecessor, the immediate
+successor from that exact group is focused instead. When a visible but
+unfocused edge terminal exits successfully, the same adjacent fallback
+replaces it in its owner tab while the previously focused editor or other
+window keeps focus. This also works when the owner tab is inactive, without
+switching tabs or stealing focus. A hidden
 terminal that exits successfully is removed without showing a fallback or
 changing focus. A fallback is never selected from another tab, directory, or
 position. Removing the group's only terminal closes that position and leaves
