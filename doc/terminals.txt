@@ -41,22 +41,27 @@ SETUP                                                      *terminals-setup*
 Setup is optional. The defaults are: >lua
 
     require("terminals").setup({
-      win = {
-        position = "float",
-      },
+      position = "float",
     })
 <
 
-`win` accepts additional snacks.win options. `win.position` is the default
-position and may be "float", "top", "bottom", "left", or "right". Snacks'
-buffer-replacing "current" position is not part of the supported contract.
-Configure dimensions such as `width` and `height` inside `win` when needed for
-the chosen position; otherwise Snacks chooses them. Configuration affects
-terminals created after setup; existing terminal objects retain their resolved
-position and original options.
+The top-level `position` setting may be "float", "top", "bottom", "left", or
+"right". Snacks' buffer-replacing "current" position is not part of the
+supported contract. Configuration affects terminals created after setup;
+existing terminal objects retain their resolved position. A per-call position
+wins over a focused managed terminal's position, which wins over the
+configured default.
 
-New managed terminals have these buffer-local mappings in both Normal and
-Terminal modes:
+The former `win` configuration field has been removed. This is a breaking API
+change: setup no longer accepts window dimensions, callbacks, window-local
+options, or key overrides. terminals.nvim owns the Snacks window options it
+passes, while Snacks provides the initial window dimensions. Left and right
+terminal windows remain resizable. Their live widths are retained
+independently per tabpage and side after resizing when managed terminals are
+created, selected, hidden, or restored.
+
+New managed terminals have these fixed buffer-local mappings in both Normal
+and Terminal modes:
 
     NAME          KEY       ACTION
     term_new      <D-n>     require("terminals").new()
@@ -64,43 +69,15 @@ Terminal modes:
     term_prev     <D-{>     require("terminals").prev()
     term_next     <D-}>     require("terminals").next()
 
-These stable names are snacks.win `keys` entries. Defaults are merged before
-user-provided `win.keys`, so each one may be replaced or set to false without
-installing a global mapping. For example: >lua
-
-    require("terminals").setup({
-      win = {
-        keys = {
-          term_new = {
-            "<leader>tn",
-            function()
-              require("terminals").new()
-            end,
-            mode = { "n", "t" },
-            desc = "New terminal",
-          },
-          term_close = false,
-        },
-      },
-    })
-<
-
-Unrelated custom `win.keys` entries are preserved. The following invariants
-are applied last and cannot be overridden: the resolved creation position,
-disabled folding with manual fold method, the managed `win.wo.winbar`
-expression, and no Normal-mode q mapping. Top, bottom, left, and right
-terminals also map both Normal and NormalNC to NormalFloat through
-`win.wo.winhighlight`,
-so focused and inactive splits use the same background. Conflicting user
-mappings for Normal and NormalNC are replaced while unrelated winhighlight
-mappings are preserved. Floating terminals leave winhighlight unchanged. Left
-and right terminals also enforce `win.wo.winfixwidth = false`, so a configured
-`win.width` sets their initial width without preventing later resizing. Their
-live width is retained independently per tabpage and side when managed
-terminals are created, selected, hidden, or restored. A per-call position wins
-over `win.position`. A user-provided
-`win.wo.winbar` is replaced. Escape handling uses the Snacks defaults;
-terminals.nvim does not supply Escape mappings.
+These mappings cannot be replaced or disabled through plugin configuration.
+The manager also disables the Snacks Normal-mode q mapping, disables folding
+with a manual fold method, and installs its managed winbar expression. Top,
+bottom, left, and right terminals receive only Normal:NormalFloat and
+NormalNC:NormalFloat through `winhighlight`, so focused and inactive splits use
+the same background. Floating terminals do not receive a winhighlight value.
+Left and right terminals enforce `winfixwidth = false`. Escape handling uses
+the Snacks defaults; terminals.nvim does not supply Escape mappings. No global
+mappings are installed.
 
 ==============================================================================
 COMMANDS                                                *terminals-commands*
@@ -149,9 +126,10 @@ COMMANDS                                                *terminals-commands*
 LUA API                                                    *terminals-api*
 
 setup({opts})                                     *terminals.setup()*
-    Configure terminals created in the future. {opts.win} is a table of Snacks
-    window options, including dimensions such as width and height.
-    {opts.win.position} sets the default position. Returns nothing.
+    Configure terminals created in the future. {opts.position} sets the
+    default position and may be "float", "top", "bottom", "left", or "right".
+    The default is "float". The former {opts.win} field has been removed;
+    window and mapping behavior is plugin-owned. Returns nothing.
 
 new({cmd}, {opts})                                   *terminals.new()*
     Create and select a terminal. Focus it when its resolved directory matches
@@ -179,7 +157,7 @@ new({cmd}, {opts})                                   *terminals.new()*
 
     {opts.position} may be "float", "top", "bottom", "left", or "right".
     Without it, new() inherits a focused managed terminal's position, or uses
-    setup's `win.position` outside one. The resolved position is stored at
+    setup's `position` outside one. The resolved position is stored at
     creation and is unaffected by later setup calls. :TermNew has no custom
     directory or position syntax; use this Lua API instead.
 
@@ -352,8 +330,8 @@ before that tab's applicable directory group is restored or created. Delivery
 always focuses the resolved current-tab terminal and writes the reference
 directly with nvim_chan_send(), without a trailing newline.
 
-No global mappings are installed. Managed terminal buffers use the
-configurable action mappings described in |terminals-setup| and inherit
-Snacks' default Escape handling.
+No global mappings are installed. Managed terminal buffers use the fixed
+action mappings described in |terminals-setup| and inherit Snacks' default
+Escape handling.
 
 vim:tw=78:ts=8:noet:ft=help:norl:

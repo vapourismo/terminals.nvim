@@ -7,7 +7,7 @@ local function pack(...)
 end
 
 ---@class terminals.Config
----@field win? table<string, any>
+---@field position? string
 
 ---@class terminals.NewOptions
 ---@field title? string
@@ -40,9 +40,7 @@ end
 ---@field active integer
 
 local defaults = {
-  win = {
-    position = "float",
-  },
+  position = "float",
 }
 
 local positions = { "float", "top", "bottom", "left", "right" }
@@ -291,22 +289,7 @@ local function is_split(position)
   return position == "top" or position == "bottom" or is_side(position)
 end
 
----@param value any
----@return string
-local function split_winhighlight(value)
-  local mappings = {}
-  if type(value) == "string" then
-    for mapping in value:gmatch("[^,]+") do
-      local source = mapping:match("^([^:]+):")
-      if source ~= "Normal" and source ~= "NormalNC" then
-        mappings[#mappings + 1] = mapping
-      end
-    end
-  end
-  mappings[#mappings + 1] = "Normal:NormalFloat"
-  mappings[#mappings + 1] = "NormalNC:NormalFloat"
-  return table.concat(mappings, ",")
-end
+local split_winhighlight = "Normal:NormalFloat,NormalNC:NormalFloat"
 
 ---@param owner integer
 ---@param position string
@@ -558,7 +541,7 @@ end
 
 ---@return string
 local function configured_position()
-  return (config.win or {}).position or "float"
+  return config.position or "float"
 end
 
 ---@param position? string
@@ -710,12 +693,6 @@ local function terminal_action_keys()
   }
 end
 
-local function enforced_terminal_keys()
-  return {
-    q = false,
-  }
-end
-
 ---@param title any
 ---@return string
 local function escape_winbar_title(title)
@@ -799,36 +776,30 @@ end
 ---@param owner integer
 ---@param position string
 local function window_options(owner, position)
-  local user_win = config.win or {}
-  local enforced_wo = {
+  local wo = {
     foldenable = false,
     foldmethod = "manual",
     winbar = winbar_expression,
   }
   if is_split(position) then
-    enforced_wo.winhighlight = split_winhighlight((user_win.wo or {}).winhighlight)
+    wo.winhighlight = split_winhighlight
   end
   if is_side(position) then
-    enforced_wo.winfixwidth = false
+    wo.winfixwidth = false
   end
-  local win = vim.tbl_deep_extend("force", {}, user_win, {
+
+  local keys = terminal_action_keys()
+  keys.q = false
+  local win = {
     position = position,
-    wo = enforced_wo,
-    keys = vim.tbl_deep_extend(
-      "force",
-      terminal_action_keys(),
-      user_win.keys or {},
-      enforced_terminal_keys()
-    ),
-  })
+    wo = wo,
+    keys = keys,
+  }
   if is_side(position) then
-    win.width = (side_widths[owner] and side_widths[owner][position]) or win.width
-    local on_win = win.on_win
+    win.width = side_widths[owner] and side_widths[owner][position] or nil
     win.on_win = function(snacks_win)
-      local result = on_win and pack(on_win(snacks_win)) or { n = 0 }
       -- Snacks forces fixed dimensions for splits after merging window options.
       enforce_side_window(owner, position, snacks_win)
-      return unpack(result, 1, result.n)
     end
   end
   return win
@@ -1241,7 +1212,9 @@ synchronize_tab_attention()
 ---Configure terminals created after this call.
 ---@param opts? terminals.Config
 function M.setup(opts)
-  config = vim.tbl_deep_extend("force", {}, defaults, opts or {})
+  config = {
+    position = opts and opts.position or defaults.position,
+  }
 end
 
 ---Create a terminal for its effective directory, focusing it when that directory is applicable.

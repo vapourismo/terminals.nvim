@@ -803,11 +803,11 @@ test("resolves default, configured, per-call, and inherited positions", function
   same(default_float.opts.win.position, "float", "float should remain the default position")
 
   vim.api.nvim_set_current_win(main_win)
-  terminals.setup({ win = { position = "bottom" } })
+  terminals.setup({ position = "bottom" })
   local bottom = terminals.new("bottom")
   same(bottom.opts.win.position, "bottom", "the configured position should apply outside managed terminals")
 
-  terminals.setup({ win = { position = "right", width = 31 } })
+  terminals.setup({ position = "right" })
   vim.cmd("TermNew inherited")
   local inherited = stub.opened[#stub.opened]
   same(inherited.opts.win.position, "bottom", "TermNew should inherit a focused terminal's position")
@@ -816,18 +816,16 @@ test("resolves default, configured, per-call, and inherited positions", function
   vim.api.nvim_set_current_win(main_win)
   local configured_right = terminals.new("configured-right")
   same(configured_right.opts.win.position, "right", "the latest configured default should apply in the editor")
-  same(configured_right.opts.win.width, 31, "a configured right width should reach Snacks initially")
 
   local explicit_top = terminals.new("explicit-top", { position = "top" })
   same(explicit_top.opts.win.position, "top", "a per-call position should override the focused position")
   truthy(configured_right:win_valid(), "creating at another edge should preserve the existing split")
 
-  terminals.setup({ win = { position = "left", width = 29 } })
+  terminals.setup({ position = "left" })
   same(explicit_top.opts.win.position, "top", "setup changes should not alter a per-call position")
   vim.api.nvim_set_current_win(main_win)
   local configured_left = terminals.new("configured-left")
   same(configured_left.opts.win.position, "left", "all documented edge positions should reach Snacks")
-  same(configured_left.opts.win.width, 29, "a configured left width should reach Snacks initially")
 end)
 
 test("isolates navigation, visibility, winbars, and fallback by position", function()
@@ -1626,41 +1624,52 @@ end)
 test("retains left and right widths independently per tab", function()
   local dir = directory("tab-widths")
   cd(dir)
-  terminals.setup({ win = { width = 27 } })
+  terminals.setup()
 
+  local original_tab = vim.api.nvim_get_current_tabpage()
+  vim.cmd("tabnew")
   local first_tab = vim.api.nvim_get_current_tabpage()
-  local first = terminals.new("first-width", { position = "left" })
-  vim.api.nvim_win_set_width(first.win, 18)
-  local first_replacement = terminals.new("first-width-replacement", { position = "left" })
-  same(first_replacement.opts.win.width, 18, "the first tab should retain its resized left width")
-  same(vim.api.nvim_win_get_width(first_replacement.win), 18, "the first tab's replacement should use its retained width")
+  local first_left = terminals.new("first-left", { position = "left" })
+  local first_right = terminals.new("first-right", { position = "right" })
+  same(first_left.opts.win.width, nil, "a new left side should leave its initial width to Snacks")
+  same(first_right.opts.win.width, nil, "a new right side should leave its initial width to Snacks")
+  local default_width = vim.api.nvim_win_get_width(first_left.win)
+  same(vim.api.nvim_win_get_width(first_right.win), default_width, "both sides should start from the Snacks default")
+
+  vim.api.nvim_win_set_width(first_left.win, 18)
+  vim.api.nvim_win_set_width(first_right.win, 24)
+  local first_left_replacement = terminals.new("first-left-replacement", { position = "left" })
+  local first_right_replacement = terminals.new("first-right-replacement", { position = "right" })
+  same(first_left_replacement.opts.win.width, 18, "the first tab should retain its resized left width")
+  same(first_right_replacement.opts.win.width, 24, "the first tab should retain its resized right width")
+  same(vim.api.nvim_win_get_width(first_left_replacement.win), 18, "the retained left width should reach the window")
+  same(vim.api.nvim_win_get_width(first_right_replacement.win), 24, "the retained right width should reach the window")
 
   vim.cmd("tabnew")
   local second_tab = vim.api.nvim_get_current_tabpage()
-  local second = terminals.new("second-width", { position = "left" })
-  same(second.opts.win.width, 27, "a second tab should start from configuration rather than another tab's width")
-  same(vim.api.nvim_win_get_width(second.win), 27, "the second tab should not inherit the first tab's live width")
+  local second_left = terminals.new("second-left", { position = "left" })
+  local second_right = terminals.new("second-right", { position = "right" })
+  same(second_left.opts.win.width, nil, "another tab should leave its initial left width to Snacks")
+  same(second_right.opts.win.width, nil, "another tab should leave its initial right width to Snacks")
+  same(vim.api.nvim_win_get_width(second_left.win), default_width, "another tab should not inherit the first left width")
+  same(vim.api.nvim_win_get_width(second_right.win), default_width, "another tab should not inherit the first right width")
 
-  vim.api.nvim_win_set_width(second.win, 22)
-  same(terminals.toggle({ position = "left" }), second, "the second tab should hide its own side terminal")
-  same(terminals.toggle({ position = "left" }), second, "the second tab should restore its own side terminal")
-  same(vim.api.nvim_win_get_width(second.win), 22, "the second tab should retain its own resized width")
+  vim.api.nvim_win_set_width(second_left.win, 21)
+  vim.api.nvim_win_set_width(second_right.win, 26)
+  same(terminals.toggle({ position = "left" }), second_left, "the second tab should hide its left terminal")
+  same(terminals.toggle({ position = "left" }), second_left, "the second tab should restore its left terminal")
+  same(vim.api.nvim_win_get_width(second_left.win), 21, "the second tab should retain its own left width")
+  same(vim.api.nvim_win_get_width(second_right.win), 26, "restoring left should not change the right width")
 
   vim.api.nvim_set_current_tabpage(first_tab)
-  truthy(first_replacement:win_valid(), "the first tab's edge should remain open across tab switches")
-  same(vim.api.nvim_win_get_width(first_replacement.win), 18, "the second tab's resize should not alter the first tab")
-
-  vim.api.nvim_win_set_width(first_replacement.win, 19)
-  same(terminals.toggle({ position = "left" }), first_replacement, "the first tab should hide its own side terminal")
-  same(terminals.toggle({ position = "left" }), first_replacement, "the first tab should restore its own side terminal")
-  same(vim.api.nvim_win_get_width(first_replacement.win), 19, "the first tab should retain its latest width independently")
+  same(vim.api.nvim_win_get_width(first_left_replacement.win), 18, "the second tab should not alter the first left width")
+  same(vim.api.nvim_win_get_width(first_right_replacement.win), 24, "the second tab should not alter the first right width")
 
   vim.api.nvim_set_current_tabpage(second_tab)
-  same(vim.api.nvim_win_get_width(second.win), 22, "the first tab's later resize should not alter the second tab")
   vim.cmd("tabclose")
-  vim.wait(100, function()
-    return not second:buf_valid()
-  end)
+  vim.api.nvim_set_current_tabpage(first_tab)
+  vim.cmd("tabclose")
+  vim.api.nvim_set_current_tabpage(original_tab)
 end)
 
 test("auto-hides floats on tab switches and restores only the owner object", function()
@@ -1961,110 +1970,59 @@ test("provides terminal-scoped action mappings whose callbacks manage terminals"
   falsy(second:buf_valid(), "the close mapping should wipe the terminal buffer")
 end)
 
-test("merges window options and enforces terminal invariants", function()
+test("uses fixed plugin-owned window options", function()
   local dir = directory("options")
   cd(dir)
-  terminals.setup()
-  local existing = terminals.new("defaults")
-  same(existing.opts.win.width, nil, "width should be left to Snacks by default")
+  terminals.setup({ position = "bottom" })
 
-  local on_win = function() end
-  local custom_new = { "N", function() end, mode = "n", desc = "Custom new" }
-  local custom_close = { "C", function() end, mode = "t", desc = "Custom close" }
-  local custom_prev = { "P", function() end, mode = { "n", "t" }, desc = "Custom previous" }
-  local custom_next = { "X", function() end, mode = { "n", "t" }, desc = "Custom next" }
-  terminals.setup({
-    win = {
-      border = "double",
-      height = 0.6,
-      width = 91,
-      position = "bottom",
-      on_win = on_win,
-      wo = {
-        number = true,
-        foldenable = true,
-        foldmethod = "expr",
-        winbar = "user winbar",
-      },
-      keys = {
-        q = "close",
-        custom = { "x", "hide", mode = "n" },
-        term_new = custom_new,
-        term_close = custom_close,
-        term_prev = custom_prev,
-        term_next = custom_next,
-        term_normal = false,
-        term_escape = { "E", "hide", mode = "n" },
-      },
-    },
-  })
-
-  local terminal = terminals.new("configured", { position = "bottom" })
+  local terminal = terminals.new("managed")
   local win = terminal.opts.win
-  same(existing.opts.win.width, nil, "setup should not mutate existing terminal options")
+  local win_names = vim.tbl_keys(win)
+  table.sort(win_names)
+  same(win_names, { "keys", "position", "wo" }, "split windows should contain only managed top-level options")
   same(win.position, "bottom", "the resolved position should be enforced")
-  same(win.width, 91, "Snacks window width should survive")
-  same(win.border, "double", "additional window options should survive")
-  same(win.height, 0.6, "additional dimensions should survive")
-  same(win.on_win, on_win, "callbacks should survive option merging")
-  same(win.wo.number, true, "unrelated window-local options should survive")
-  same(win.wo.foldenable, false, "folding should be disabled")
-  same(win.wo.foldmethod, "manual", "manual fold method should be enforced")
-  same(win.wo.winbar, "%!v:lua.require'terminals'._winbar()", "the managed winbar should be enforced")
-  truthy(win.keys.custom, "custom key mappings should survive")
-  same(win.keys.term_new, custom_new, "the new-terminal mapping should be replaceable by name")
-  same(win.keys.term_close, custom_close, "the close mapping should be replaceable by name")
-  same(win.keys.term_prev, custom_prev, "the previous mapping should be replaceable by name")
-  same(win.keys.term_next, custom_next, "the next mapping should be replaceable by name")
-  same(win.keys.q, false, "the Snacks q mapping should be disabled")
-  same(win.keys.term_normal, false, "user-provided Escape options should survive")
-  same(win.keys.term_escape, { "E", "hide", mode = "n" }, "user-provided named key options should survive")
+  same(win.wo, {
+    foldenable = false,
+    foldmethod = "manual",
+    winbar = "%!v:lua.require'terminals'._winbar()",
+    winhighlight = "Normal:NormalFloat,NormalNC:NormalFloat",
+  }, "split window-local options should be fixed")
 
-  terminals.setup({
-    win = {
-      keys = {
-        custom = { "z", "hide", mode = "n" },
-        term_new = false,
-        term_close = false,
-        term_prev = false,
-        term_next = false,
-        q = "close",
-      },
-    },
-  })
-  local disabled = terminals.new("disabled").opts.win.keys
-  same(disabled.term_new, false, "the new-terminal mapping should be disableable by name")
-  same(disabled.term_close, false, "the close mapping should be disableable by name")
-  same(disabled.term_prev, false, "the previous mapping should be disableable by name")
-  same(disabled.term_next, false, "the next mapping should be disableable by name")
-  truthy(disabled.custom, "disabling defaults should preserve unrelated mappings")
-  same(disabled.q, false, "q should remain enforced when action mappings are disabled")
-  same(disabled.term_normal, nil, "Escape handling should still use the Snacks default")
-  same(disabled.term_escape, nil, "no additional Escape mapping should be supplied")
+  local key_names = vim.tbl_keys(win.keys)
+  table.sort(key_names)
+  same(
+    key_names,
+    { "q", "term_close", "term_new", "term_next", "term_prev" },
+    "only the fixed terminal actions and disabled q mapping should be present"
+  )
+  same(win.keys.q, false, "the Snacks Normal-mode q mapping should be disabled")
+
+  local floating = terminals.new("floating", { position = "float" })
+  local float_names = vim.tbl_keys(floating.opts.win)
+  table.sort(float_names)
+  same(float_names, { "keys", "position", "wo" }, "floating windows should not receive dimensions or callbacks")
+  same(floating.opts.win.wo, {
+    foldenable = false,
+    foldmethod = "manual",
+    winbar = "%!v:lua.require'terminals'._winbar()",
+  }, "floating windows should contain only managed window-local options")
 end)
 
 test("uses the floating background for focused and inactive split terminals", function()
   local dir = directory("split-backgrounds")
   cd(dir)
-  local user_winhighlight = "Normal:UserNormal,CursorLine:Visual,NormalNC:UserNormalNC,FloatBorder:DiagnosticInfo"
-  local expected = "CursorLine:Visual,FloatBorder:DiagnosticInfo,Normal:NormalFloat,NormalNC:NormalFloat"
-  terminals.setup({
-    win = {
-      wo = {
-        winhighlight = user_winhighlight,
-      },
-    },
-  })
+  local expected = "Normal:NormalFloat,NormalNC:NormalFloat"
+  terminals.setup()
 
   local splits = {}
   for _, position in ipairs({ "top", "bottom", "left", "right" }) do
     local terminal = terminals.new(position, { position = position })
     splits[#splits + 1] = terminal
-    same(terminal.opts.win.wo.winhighlight, expected, position .. " should enforce both background mappings")
+    same(terminal.opts.win.wo.winhighlight, expected, position .. " should use only the managed background mappings")
     same(
       vim.api.nvim_get_option_value("winhighlight", { win = terminal.win }),
       expected,
-      position .. " should apply the enforced mappings to its window"
+      position .. " should apply the managed mappings to its window"
     )
   end
 
@@ -2091,41 +2049,28 @@ test("uses the floating background for focused and inactive split terminals", fu
   same(
     vim.api.nvim_get_option_value("winhighlight", { win = recreated.win }),
     expected,
-    "a recreated split window should reapply the enforced mappings"
+    "a recreated split window should reapply the managed mappings"
   )
 
   vim.api.nvim_set_current_win(main_win)
   local floating = terminals.new("float", { position = "float" })
-  same(
-    floating.opts.win.wo.winhighlight,
-    user_winhighlight,
-    "floating terminals should preserve the user-provided mappings unchanged"
-  )
-  same(
-    vim.api.nvim_get_option_value("winhighlight", { win = floating.win }),
-    user_winhighlight,
-    "floating terminal windows should apply the unchanged user mappings"
-  )
+  same(floating.opts.win.wo.winhighlight, nil, "floating terminals should not configure a background mapping")
 end)
 
 test("keeps side terminal widths resizable", function()
   local dir = directory("resizable-side-widths")
   cd(dir)
-  terminals.setup({
-    win = {
-      width = 27,
-      on_win = function(snacks_win)
-        snacks_win.user_on_win_called = true
-      end,
-      wo = {
-        winfixwidth = true,
-      },
-    },
-  })
+  terminals.setup()
+
+  local original_tab = vim.api.nvim_get_current_tabpage()
+  vim.cmd("tabnew")
+  local owner_tab = vim.api.nvim_get_current_tabpage()
+  local editor_win = vim.api.nvim_get_current_win()
 
   for _, position in ipairs({ "left", "right" }) do
     local terminal = terminals.new(position, { position = position })
-    same(terminal.opts.win.wo.winfixwidth, false, position .. " should override a fixed user width")
+    same(terminal.opts.win.width, nil, position .. " should leave its initial width to Snacks")
+    same(terminal.opts.win.wo.winfixwidth, false, position .. " should be resizable")
 
     local resized_width = position == "left" and 18 or 22
     vim.api.nvim_win_set_width(terminal.win, resized_width)
@@ -2143,7 +2088,6 @@ test("keeps side terminal widths resizable", function()
     snacks_win.opts.wo.winfixwidth = true
     vim.api.nvim_set_option_value("winfixwidth", true, { win = snacks_win.win })
     replacement.opts.win.on_win(snacks_win)
-    truthy(snacks_win.user_on_win_called, position .. " should preserve the user on_win callback")
     same(snacks_win.opts.wo.winfixwidth, false, position .. " should correct Snacks' stored split default")
     same(
       vim.api.nvim_get_option_value("winfixwidth", { win = replacement.win }),
@@ -2157,7 +2101,7 @@ test("keeps side terminal widths resizable", function()
     same(terminals.toggle({ position = position }), replacement, position .. " toggle should restore the terminal")
     same(vim.api.nvim_win_get_width(replacement.win), toggled_width, position .. " toggle should retain the live width")
 
-    vim.api.nvim_set_current_win(main_win)
+    vim.api.nvim_set_current_win(editor_win)
     replacement:exit(0)
     truthy(terminal:win_valid(), position .. " successful exit should show the adjacent terminal")
     same(
@@ -2165,19 +2109,13 @@ test("keeps side terminal widths resizable", function()
       toggled_width,
       position .. " successful exit replacement should retain the live width"
     )
-    same(vim.api.nvim_get_current_win(), main_win, position .. " successful exit should preserve editor focus")
+    same(vim.api.nvim_get_current_win(), editor_win, position .. " successful exit should preserve editor focus")
     terminal:hide()
   end
 
-  for _, position in ipairs({ "float", "top", "bottom" }) do
-    local terminal = terminals.new(position, { position = position })
-    same(
-      terminal.opts.win.wo.winfixwidth,
-      true,
-      position .. " should preserve the user-provided winfixwidth"
-    )
-    same(type(terminal.opts.win.on_win), "function", position .. " should preserve the user on_win callback")
-  end
+  vim.api.nvim_set_current_tabpage(owner_tab)
+  vim.cmd("tabclose")
+  vim.api.nvim_set_current_tabpage(original_tab)
 end)
 
 pcall(vim.api.nvim_set_current_win, main_win)
