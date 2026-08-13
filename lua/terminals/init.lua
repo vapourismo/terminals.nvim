@@ -479,12 +479,14 @@ local function hide_departed_float(previous, next_position)
 end
 
 ---@param entry terminals.Entry
-local function clear_attention(entry)
-  if entry.attention then
-    entry.attention = false
-    synchronize_tab_attention()
-    vim.cmd.redrawstatus()
+---@param attention boolean
+local function set_attention(entry, attention)
+  if entry.attention == attention then
+    return
   end
+  entry.attention = attention
+  synchronize_tab_attention()
+  vim.cmd.redrawstatus()
 end
 
 ---@param entry terminals.Entry
@@ -507,7 +509,7 @@ local function focus(entry)
     entry.terminal:focus()
   end)
   hide_departed_float(previous, entry.position)
-  clear_attention(entry)
+  set_attention(entry, false)
   return entry.terminal
 end
 
@@ -1008,138 +1010,120 @@ end
 local function attach(entry)
   local terminal = entry.terminal
 
-  vim.api.nvim_create_autocmd("TermRequest", {
-    group = lifecycle_group,
-    buffer = terminal.buf,
-    callback = function(event)
-      local data = type(event.data) == "table" and event.data or nil
-      local sequence = data and data.sequence or nil
-      if type(sequence) ~= "string" then
-        return
-      end
+  ---@param events string|string[]
+  ---@param callback function
+  local function on_terminal_event(events, callback)
+    vim.api.nvim_create_autocmd(events, {
+      group = lifecycle_group,
+      buffer = terminal.buf,
+      callback = callback,
+    })
+  end
 
-      local message = sequence == "\027]9" and "" or sequence:match("^\027%]9;(.*)$")
-      if message == nil or message:match("^4;") then
-        return
-      end
+  on_terminal_event("TermRequest", function(event)
+    local data = type(event.data) == "table" and event.data or nil
+    local sequence = data and data.sequence or nil
+    if type(sequence) ~= "string" then
+      return
+    end
 
-      local focused = entry_focused(entry)
-      notify_osc(message)
-      if focused then
-        return
-      end
+    local message = sequence == "\027]9" and "" or sequence:match("^\027%]9;(.*)$")
+    if message == nil or message:match("^4;") then
+      return
+    end
 
-      if not entry.attention then
-        entry.attention = true
-        synchronize_tab_attention()
-        vim.cmd.redrawstatus()
-      end
-    end,
-  })
+    local focused = entry_focused(entry)
+    notify_osc(message)
+    if focused then
+      return
+    end
 
-  vim.api.nvim_create_autocmd({ "BufEnter", "WinEnter" }, {
-    group = lifecycle_group,
-    buffer = terminal.buf,
-    callback = function()
-      select_entry(entry)
-      clear_attention(entry)
-    end,
-  })
+    set_attention(entry, true)
+  end)
 
-  vim.api.nvim_create_autocmd("TermClose", {
-    group = lifecycle_group,
-    buffer = terminal.buf,
-    callback = function(event)
-      if entry.intentional_close then
-        return
-      end
+  on_terminal_event({ "BufEnter", "WinEnter" }, function()
+    select_entry(entry)
+    set_attention(entry, false)
+  end)
 
-      local status = type(vim.v.event) == "table" and vim.v.event.status or nil
-      if status == nil and type(event.data) == "table" then
-        status = event.data.status
-      end
-      if status ~= 0 then
-        entry.exit_status = status
-        vim.cmd.redrawstatus()
-        snacks().notify.error("Terminal exited with code " .. status .. ".\nCheck for any errors.")
-        return
-      end
+  on_terminal_event("TermClose", function(event)
+    if entry.intentional_close then
+      return
+    end
 
-      local was_focused = consume_departing_focus(entry)
-      local was_visible = win_valid(terminal)
-      local replace_visible_edge = was_visible and is_split(entry.position)
-      remember_side_width(entry.owner, entry.position, terminal)
-      local fallback, removed = remove_entry(entry, was_focused or replace_visible_edge)
-      without_winleave(function()
-        terminal:close()
-      end)
-      if removed and was_focused then
-        focus_fallback(fallback)
-      elseif removed and replace_visible_edge then
-        show_unfocused_edge_fallback(fallback)
-      end
-      vim.cmd.checktime()
-    end,
-  })
+    local status = type(vim.v.event) == "table" and vim.v.event.status or nil
+    if status == nil and type(event.data) == "table" then
+      status = event.data.status
+    end
+    if status ~= 0 then
+      entry.exit_status = status
+      vim.cmd.redrawstatus()
+      snacks().notify.error("Terminal exited with code " .. status .. ".\nCheck for any errors.")
+      return
+    end
 
-  vim.api.nvim_create_autocmd("BufWinLeave", {
-    group = lifecycle_group,
-    buffer = terminal.buf,
-    callback = function()
-      remember_side_width(entry.owner, entry.position, terminal)
-      -- TermClose and BufWipeout can run after Neovim invalidates the terminal
-      -- window, so retain whether its buffer was current while it is leaving.
-      entry.focused_before_leave = suppress_winleave == 0
-        and not entry.hiding
-        and not entry.removed
-        and terminal.buf == vim.api.nvim_get_current_buf()
+    local was_focused = consume_departing_focus(entry)
+    local was_visible = win_valid(terminal)
+    local replace_visible_edge = was_visible and is_split(entry.position)
+    remember_side_width(entry.owner, entry.position, terminal)
+    local fallback, removed = remove_entry(entry, was_focused or replace_visible_edge)
+    without_winleave(function()
+      terminal:close()
+    end)
+    if removed and was_focused then
+      focus_fallback(fallback)
+    elseif removed and replace_visible_edge then
+      show_unfocused_edge_fallback(fallback)
+    end
+    vim.cmd.checktime()
+  end)
 
-      -- A later lifecycle event for an already hidden buffer must not reuse it.
+  on_terminal_event("BufWinLeave", function()
+    remember_side_width(entry.owner, entry.position, terminal)
+    -- TermClose and BufWipeout can run after Neovim invalidates the terminal
+    -- window, so retain whether its buffer was current while it is leaving.
+    entry.focused_before_leave = suppress_winleave == 0
+      and not entry.hiding
+      and not entry.removed
+      and terminal.buf == vim.api.nvim_get_current_buf()
+
+    -- A later lifecycle event for an already hidden buffer must not reuse it.
+    vim.schedule(function()
+      entry.focused_before_leave = false
+    end)
+  end)
+
+  on_terminal_event("BufWipeout", function()
+    local was_focused = consume_departing_focus(entry)
+    local fallback, removed = remove_entry(entry, was_focused)
+    if removed and was_focused then
+      -- Window changes are unsafe until the wipe autocmd has completed.
       vim.schedule(function()
-        entry.focused_before_leave = false
+        focus_fallback(fallback)
       end)
-    end,
-  })
+    end
+  end)
 
-  vim.api.nvim_create_autocmd("BufWipeout", {
-    group = lifecycle_group,
-    buffer = terminal.buf,
-    callback = function()
-      local was_focused = consume_departing_focus(entry)
-      local fallback, removed = remove_entry(entry, was_focused)
-      if removed and was_focused then
-        -- Window changes are unsafe until the wipe autocmd has completed.
-        vim.schedule(function()
-          focus_fallback(fallback)
-        end)
-      end
-    end,
-  })
+  on_terminal_event("WinLeave", function(event)
+    if entry.position ~= "float" or suppress_winleave > 0 or entry.hiding or entry.removed then
+      return
+    end
 
-  vim.api.nvim_create_autocmd("WinLeave", {
-    group = lifecycle_group,
-    buffer = terminal.buf,
-    callback = function(event)
-      if entry.position ~= "float" or suppress_winleave > 0 or entry.hiding or entry.removed then
-        return
-      end
+    if
+      event.buf ~= terminal.buf
+      or terminal.win ~= vim.api.nvim_get_current_win()
+      or not win_valid(terminal)
+    then
+      return
+    end
 
-      if
-        event.buf ~= terminal.buf
-        or terminal.win ~= vim.api.nvim_get_current_win()
-        or not win_valid(terminal)
-      then
-        return
-      end
-
-      entry.hiding = true
-      local ok, err = pcall(terminal.hide, terminal)
-      entry.hiding = false
-      if not ok then
-        error(err, 0)
-      end
-    end,
-  })
+    entry.hiding = true
+    local ok, err = pcall(terminal.hide, terminal)
+    entry.hiding = false
+    if not ok then
+      error(err, 0)
+    end
+  end)
 end
 
 local function detach_closed_tabs()
