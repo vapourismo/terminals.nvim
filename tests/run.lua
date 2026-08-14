@@ -144,14 +144,12 @@ local function with_channel_mocks(channels, callback, send_impl)
     sent[#sent + 1] = { channel = channel, data = data }
   end
 
-  local ok, err = xpcall(function()
+  with_cleanup(function()
     callback(sent)
-  end, debug.traceback)
-  vim.api.nvim_get_option_value = get_option_value
-  vim.api.nvim_chan_send = chan_send
-  if not ok then
-    error(err, 0)
-  end
+  end, function()
+    vim.api.nvim_get_option_value = get_option_value
+    vim.api.nvim_chan_send = chan_send
+  end)
 end
 
 test("registers commands and forwards command forms", function()
