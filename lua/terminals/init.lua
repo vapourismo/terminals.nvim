@@ -1,9 +1,5 @@
 local M = {}
 
-local function pack(...)
-  return { n = select("#", ...), ... }
-end
-
 ---@class terminals.Config
 ---@field position? string
 
@@ -423,17 +419,14 @@ local function remove_entry(entry, select_fallback)
   return fallback, true
 end
 
----@generic T
----@param callback fun(): T
----@return T
+---@param callback function
 local function without_winleave(callback)
   suppress_winleave = suppress_winleave + 1
-  local result = pack(pcall(callback))
+  local ok, err = pcall(callback)
   suppress_winleave = suppress_winleave - 1
-  if not result[1] then
-    error(result[2], 0)
+  if not ok then
+    error(err, 0)
   end
-  return unpack(result, 2, result.n)
 end
 
 ---@param owner integer
