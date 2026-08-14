@@ -408,8 +408,6 @@ local function remove_entry(entry, select_fallback)
     group.active = removed_index > 1 and removed_index - 1 or 1
   elseif removed_index < group.active then
     group.active = group.active - 1
-  elseif group.active > #group.terminals then
-    group.active = #group.terminals
   end
   return fallback, true
 end
