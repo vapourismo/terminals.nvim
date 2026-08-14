@@ -637,40 +637,23 @@ local function show_unfocused_edge_fallback(entry)
   end)
 end
 
+local function terminal_action(key, method, description)
+  return {
+    key,
+    function()
+      M[method]()
+    end,
+    mode = { "n", "t" },
+    desc = description,
+  }
+end
+
 local function terminal_action_keys()
   return {
-    term_new = {
-      "<D-n>",
-      function()
-        M.new()
-      end,
-      mode = { "n", "t" },
-      desc = "New terminal",
-    },
-    term_close = {
-      "<D-w>",
-      function()
-        M.close()
-      end,
-      mode = { "n", "t" },
-      desc = "Close terminal",
-    },
-    term_prev = {
-      "<D-{>",
-      function()
-        M.prev()
-      end,
-      mode = { "n", "t" },
-      desc = "Previous terminal",
-    },
-    term_next = {
-      "<D-}>",
-      function()
-        M.next()
-      end,
-      mode = { "n", "t" },
-      desc = "Next terminal",
-    },
+    term_new = terminal_action("<D-n>", "new", "New terminal"),
+    term_close = terminal_action("<D-w>", "close", "Close terminal"),
+    term_prev = terminal_action("<D-{>", "prev", "Previous terminal"),
+    term_next = terminal_action("<D-}>", "next", "Next terminal"),
   }
 end
 
