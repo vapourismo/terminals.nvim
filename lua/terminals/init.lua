@@ -724,11 +724,7 @@ local function entry_for_win(win)
     return nil
   end
 
-  local ok, buf = pcall(vim.api.nvim_win_get_buf, win)
-  if not ok then
-    return nil
-  end
-
+  local buf = vim.api.nvim_win_get_buf(win)
   local owner = vim.api.nvim_win_get_tabpage(win)
   for _, entry in ipairs(registry_entries(owner)) do
     if
