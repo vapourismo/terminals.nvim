@@ -1372,8 +1372,8 @@ function M.send(opts)
     if entry then
       target_cwd = entry.cwd
     else
-      local scope_owner, cwd, resolved_position = applicable_scope(position)
-      local group = prune(scope_owner, cwd, resolved_position)
+      local _, cwd, resolved_position = applicable_scope(position)
+      local group = prune(owner, cwd, resolved_position)
       entry = group and group.terminals[group.active]
       target_cwd = entry and entry.cwd or cwd
     end
