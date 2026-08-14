@@ -682,7 +682,7 @@ local function terminal_action_keys()
     term_new = {
       "<D-n>",
       function()
-        require("terminals").new()
+        M.new()
       end,
       mode = { "n", "t" },
       desc = "New terminal",
@@ -690,7 +690,7 @@ local function terminal_action_keys()
     term_close = {
       "<D-w>",
       function()
-        require("terminals").close()
+        M.close()
       end,
       mode = { "n", "t" },
       desc = "Close terminal",
@@ -698,7 +698,7 @@ local function terminal_action_keys()
     term_prev = {
       "<D-{>",
       function()
-        require("terminals").prev()
+        M.prev()
       end,
       mode = { "n", "t" },
       desc = "Previous terminal",
@@ -706,7 +706,7 @@ local function terminal_action_keys()
     term_next = {
       "<D-}>",
       function()
-        require("terminals").next()
+        M.next()
       end,
       mode = { "n", "t" },
       desc = "Next terminal",
