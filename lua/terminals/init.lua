@@ -649,12 +649,12 @@ local function show_unfocused_edge_fallback(entry)
       if win then
         win.enter = false
       end
-      local result = pack(pcall(terminal.show, terminal))
+      local ok, err = pcall(terminal.show, terminal)
       if win then
         win.enter = enter
       end
-      if not result[1] then
-        error(result[2], 0)
+      if not ok then
+        error(err, 0)
       end
 
       enforce_side_window(entry.owner, entry.position, terminal)
