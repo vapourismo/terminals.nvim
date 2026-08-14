@@ -595,17 +595,14 @@ local function owner_execution_window(owner, avoid_position)
     end
   end
 
-  local fallback
-  for _, win in ipairs(vim.api.nvim_tabpage_list_wins(owner)) do
-    if vim.api.nvim_win_is_valid(win) then
-      fallback = fallback or win
-      local ok, win_config = pcall(vim.api.nvim_win_get_config, win)
-      if not avoided[win] and ok and win_config.relative == "" then
-        return win
-      end
+  local windows = vim.api.nvim_tabpage_list_wins(owner)
+  for _, win in ipairs(windows) do
+    local win_config = vim.api.nvim_win_get_config(win)
+    if not avoided[win] and win_config.relative == "" then
+      return win
     end
   end
-  return fallback
+  return windows[1]
 end
 
 ---@param entry terminals.Entry?
