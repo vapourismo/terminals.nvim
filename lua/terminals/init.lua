@@ -780,7 +780,11 @@ function M._winbar()
     if index > 1 then
       parts[#parts + 1] = "%#NormalFloat# "
     end
-    parts[#parts + 1] = index == group.active and "%#TermBarNameActive# " or "%#TermBarName# "
+    local title_highlight = "TermBarName"
+    if index == group.active then
+      title_highlight = entry_focused(entry) and "TermBarNameFocused" or "TermBarNameActive"
+    end
+    parts[#parts + 1] = "%#" .. title_highlight .. "# "
     parts[#parts + 1] = title
     parts[#parts + 1] = " "
     if entry.exit_status ~= nil then

@@ -210,13 +210,17 @@ lifetime. Otherwise, the winbar
 uses the terminal's creation command: shell strings are displayed directly,
 argv lists are joined with single spaces without shell quoting, and a terminal
 created without a command is labeled `terminal`. The selected title uses
-`TermBarNameActive`; other titles use `TermBarName`. Each title has one
-highlighted padding space on both sides. A retained terminal that exits with a
-non-zero status appends its numeric code directly after its title, with one
-padding space on both sides highlighted by `TermBarStatus`. The space between
+`TermBarNameFocused` when its managed terminal window and buffer are current,
+and `TermBarNameActive` otherwise, including when an edge terminal remains
+visible after focus moves to an editor window. Other titles use `TermBarName`.
+Titles remain in creation order, and each has one highlighted padding space on
+both sides. A retained terminal that exits with a non-zero status appends its
+numeric code directly after its title, with one padding space on both sides
+highlighted by `TermBarStatus`. The space between
 terminal entries and the remaining winbar use `NormalFloat`. The plugin
-consumes `TermBarName`, `TermBarNameActive`, `TermBarStatus`, `TermBarAttention`,
-and `NormalFloat` without defining or overriding them.
+consumes `TermBarName`, `TermBarNameActive`, `TermBarNameFocused`,
+`TermBarStatus`, `TermBarAttention`, and `NormalFloat` without defining or
+overriding them.
 
 An OSC 9 notification issues an INFO notification. Its message may start with
 `<title>:` to set the notification title and remove that prefix from the body.
