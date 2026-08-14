@@ -109,20 +109,15 @@ end
 ---@return terminals.Entry[]
 local function registry_entries(owner, position)
   local entries = {}
-  local tab_registry = registry[owner]
-  local function append(position_groups)
-    for _, group in pairs(position_groups or {}) do
+  local position_groups = registry[owner] or {}
+  if position then
+    position_groups = { position_groups[position] }
+  end
+  for _, groups in pairs(position_groups) do
+    for _, group in pairs(groups) do
       for _, entry in ipairs(group.terminals) do
         entries[#entries + 1] = entry
       end
-    end
-  end
-
-  if position then
-    append(tab_registry and tab_registry[position])
-  else
-    for _, position_groups in pairs(tab_registry or {}) do
-      append(position_groups)
     end
   end
   return entries
