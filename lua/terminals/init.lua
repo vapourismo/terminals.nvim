@@ -1306,9 +1306,7 @@ synchronize_tab_attention()
 ---Configure terminals created after this call.
 ---@param opts? terminals.Config
 function M.setup(opts)
-  config = {
-    position = opts and opts.position or defaults.position,
-  }
+  config.position = opts and opts.position or defaults.position
 end
 
 ---Create a terminal for its effective directory, focusing it when that directory is applicable.
