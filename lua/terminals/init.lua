@@ -277,6 +277,11 @@ local function synchronize_tab_attention()
   end
 end
 
+local function redraw_attention()
+  synchronize_tab_attention()
+  vim.cmd.redrawstatus()
+end
+
 ---@param position string
 ---@return boolean
 local function is_side(position)
@@ -355,8 +360,7 @@ local function prune(owner, cwd, position)
   end
 
   if pruned_attention then
-    synchronize_tab_attention()
-    vim.cmd.redrawstatus()
+    redraw_attention()
   end
 
   if #terminals == 0 then
@@ -403,8 +407,7 @@ local function remove_entry(entry, select_fallback)
   end
   entry.removed = true
   if entry.attention then
-    synchronize_tab_attention()
-    vim.cmd.redrawstatus()
+    redraw_attention()
   end
 
   local group = group_for(entry.owner, entry.cwd, entry.position)
@@ -487,8 +490,7 @@ local function set_attention(entry, attention)
     return
   end
   entry.attention = attention
-  synchronize_tab_attention()
-  vim.cmd.redrawstatus()
+  redraw_attention()
 end
 
 ---@param entry terminals.Entry
@@ -1262,8 +1264,7 @@ local function detach_closed_tabs()
     return
   end
 
-  synchronize_tab_attention()
-  vim.cmd.redrawstatus()
+  redraw_attention()
   vim.schedule(function()
     without_winleave(function()
       local first_error
