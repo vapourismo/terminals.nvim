@@ -875,9 +875,6 @@ local function selection_position(buf, position, linewise)
   end
 
   local text = vim.api.nvim_buf_get_lines(buf, line - 1, line, true)[1]
-  if text == nil then
-    return nil
-  end
   local max_column = math.max(#text, 1)
   if column == vim.v.maxcol then
     column = max_column
