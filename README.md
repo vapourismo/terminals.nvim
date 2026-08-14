@@ -73,12 +73,12 @@ both Normal and Terminal modes:
 
 These mappings cannot be replaced or disabled through plugin configuration.
 The manager also disables the Snacks Normal-mode `q` mapping, disables folding
-with a manual fold method, and installs its managed winbar expression. Top,
-bottom, left, and right terminals receive only the `Normal:NormalFloat` and
-`NormalNC:NormalFloat` `winhighlight` mappings, giving focused and inactive
-split terminals the same background. Floating terminals do not receive a
-`winhighlight` value. Left and right terminals enforce
-`winfixwidth = false`. Escape handling uses the Snacks defaults;
+with a manual fold method, and installs its managed winbar expression. Every
+managed terminal position (`float`, `top`, `bottom`, `left`, and `right`)
+receives only the `Normal:NormalFloat` and `NormalNC:NormalFloat`
+`winhighlight` mappings, giving focused and inactive terminal windows the same
+background. Left and right terminals enforce `winfixwidth = false`. Escape
+handling uses the Snacks defaults;
 `terminals.nvim` does not supply Escape mappings. No global mappings are
 installed.
 
@@ -225,8 +225,8 @@ an editor while its selected entry remains `TermBarNameActive`.
 `TermBarName`, `TermBarNameActive`, `TermBarNameFocused`, `TermBarStatus`,
 `TermBarAttention`, `TermBarGap`, and `TermBarGapFocused` are user-defined
 highlight groups that the plugin consumes without defining or overriding.
-The plugin also consumes `NormalFloat` for managed split backgrounds and the
-defensive fill rendered for a missing, unmanaged, or stale winbar target.
+The plugin also consumes `NormalFloat` for managed terminal backgrounds and
+the defensive fill rendered for a missing, unmanaged, or stale winbar target.
 
 An OSC 9 notification issues an INFO notification. Its message may start with
 `<title>:` to set the notification title and remove that prefix from the body.

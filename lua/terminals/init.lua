@@ -274,7 +274,7 @@ local function is_split(position)
   return position == "top" or position == "bottom" or is_side(position)
 end
 
-local split_winhighlight = "Normal:NormalFloat,NormalNC:NormalFloat"
+local managed_winhighlight = "Normal:NormalFloat,NormalNC:NormalFloat"
 
 ---@param owner integer
 ---@param position string
@@ -750,9 +750,7 @@ local function window_options(owner, position)
     foldmethod = "manual",
     winbar = winbar_expression,
   }
-  if is_split(position) then
-    wo.winhighlight = split_winhighlight
-  end
+  wo.winhighlight = managed_winhighlight
   if is_side(position) then
     wo.winfixwidth = false
   end

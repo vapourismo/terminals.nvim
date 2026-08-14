@@ -2178,10 +2178,11 @@ test("uses fixed plugin-owned window options", function()
     foldenable = false,
     foldmethod = "manual",
     winbar = "%!v:lua.require'terminals'._winbar()",
+    winhighlight = "Normal:NormalFloat,NormalNC:NormalFloat",
   }, "floating windows should contain only managed window-local options")
 end)
 
-test("uses the floating background for focused and inactive split terminals", function()
+test("uses the floating background for all managed terminal windows", function()
   local dir = directory("split-backgrounds")
   cd(dir)
   local expected = "Normal:NormalFloat,NormalNC:NormalFloat"
@@ -2227,7 +2228,21 @@ test("uses the floating background for focused and inactive split terminals", fu
 
   vim.api.nvim_set_current_win(main_win)
   local floating = terminals.new("float", { position = "float" })
-  same(floating.opts.win.wo.winhighlight, nil, "floating terminals should not configure a background mapping")
+  same(floating.opts.win.wo.winhighlight, expected, "floating terminal options should use the managed mappings")
+  same(
+    vim.api.nvim_get_option_value("winhighlight", { win = floating.win }),
+    expected,
+    "the floating terminal window should apply the managed mappings"
+  )
+
+  same(terminals.toggle({ position = "float" }), floating, "toggle should hide the focused floating terminal")
+  falsy(floating:win_valid(), "the floating terminal window should be hidden")
+  same(terminals.toggle({ position = "float" }), floating, "toggle should recreate the floating terminal window")
+  same(
+    vim.api.nvim_get_option_value("winhighlight", { win = floating.win }),
+    expected,
+    "a recreated floating terminal window should reapply the managed mappings"
+  )
 end)
 
 test("keeps side terminal widths resizable", function()
