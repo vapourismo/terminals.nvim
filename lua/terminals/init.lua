@@ -43,7 +43,6 @@ end
 ---@field finalization_checktime boolean
 ---@field finalization_was_focused boolean
 ---@field finalization_was_visible boolean
----@field terminal_close_started boolean
 
 ---@class terminals.Group
 ---@field terminals terminals.Entry[]
@@ -1074,8 +1073,7 @@ local function schedule_finalization(entry, close_terminal, checktime)
     )
 
     local close_error
-    if entry.finalization_close and not entry.terminal_close_started then
-      entry.terminal_close_started = true
+    if entry.finalization_close then
       local ok, err = pcall(function()
         without_winleave(function()
           entry.terminal:close()
@@ -1322,7 +1320,6 @@ function M.new(cmd, opts)
     finalization_checktime = false,
     finalization_was_focused = false,
     finalization_was_visible = false,
-    terminal_close_started = false,
   }
   group.terminals[#group.terminals + 1] = entry
   group.active = #group.terminals
