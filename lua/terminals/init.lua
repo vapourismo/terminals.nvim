@@ -834,12 +834,6 @@ local function notify_error(message)
 end
 
 ---@param message string
----@param title? string
-local function notify_info(message, title)
-  snacks().notify.info(message, { title = title or "terminals" })
-end
-
----@param message string
 local function notify_osc(message)
   local title
   local candidate, body = message:match("^([^:]*):(.*)$")
@@ -851,7 +845,9 @@ local function notify_osc(message)
     end
   end
 
-  notify_info(message ~= "" and message or "a terminal needs attention", title)
+  snacks().notify.info(message ~= "" and message or "a terminal needs attention", {
+    title = title or "terminals",
+  })
 end
 
 ---@param buf integer
