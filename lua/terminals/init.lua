@@ -57,8 +57,7 @@ for _, position in ipairs(positions) do
   valid_positions[position] = true
 end
 
----@type terminals.Config
-local config = { position = default_position }
+local configured_position = default_position
 
 ---@type table<integer, table<string, table<string, terminals.Group>>>
 local registry = {}
@@ -556,7 +555,7 @@ local function applicable_scope(position)
   local owner = vim.api.nvim_get_current_tabpage()
   local entry = focused_entry()
   local cwd = entry and entry.cwd or neovim_cwd()
-  return owner, cwd, position or (entry and entry.position) or config.position, entry
+  return owner, cwd, position or (entry and entry.position) or configured_position, entry
 end
 
 ---@param cwd? string
@@ -1296,7 +1295,7 @@ synchronize_tab_attention()
 ---Configure terminals created after this call.
 ---@param opts? terminals.Config
 function M.setup(opts)
-  config.position = opts and opts.position or default_position
+  configured_position = opts and opts.position or default_position
 end
 
 ---Create a terminal for its effective directory, focusing it when that directory is applicable.
