@@ -216,11 +216,16 @@ visible after focus moves to an editor window. Other titles use `TermBarName`.
 Titles remain in creation order, and each has one highlighted padding space on
 both sides. A retained terminal that exits with a non-zero status appends its
 numeric code directly after its title, with one padding space on both sides
-highlighted by `TermBarStatus`. The space between
-terminal entries and the remaining winbar use `NormalFloat`. The plugin
-consumes `TermBarName`, `TermBarNameActive`, `TermBarNameFocused`,
-`TermBarStatus`, `TermBarAttention`, and `NormalFloat` without defining or
-overriding them.
+highlighted by `TermBarStatus`. The separator space between terminal entries
+and the trailing winbar fill use `TermBarGapFocused` when the rendered managed
+terminal window and buffer are current, and `TermBarGap` otherwise. Thus, a
+visible edge terminal switches its gaps to `TermBarGap` after focus moves to
+an editor while its selected entry remains `TermBarNameActive`.
+`TermBarName`, `TermBarNameActive`, `TermBarNameFocused`, `TermBarStatus`,
+`TermBarAttention`, `TermBarGap`, and `TermBarGapFocused` are user-defined
+highlight groups that the plugin consumes without defining or overriding.
+The plugin also consumes `NormalFloat` for managed split backgrounds and the
+defensive fill rendered for a missing, unmanaged, or stale winbar target.
 
 An OSC 9 notification issues an INFO notification. Its message may start with
 `<title>:` to set the notification title and remove that prefix from the body.

@@ -768,17 +768,19 @@ end
 ---@return string
 function M._winbar()
   local win = tonumber(vim.g.statusline_winid) or 0
-  local entry = entry_for_win(win)
-  local group = entry and prune(entry.owner, entry.cwd, entry.position) or nil
-  if not group then
+  local target = entry_for_win(win)
+  local group = target and prune(target.owner, target.cwd, target.position) or nil
+  if not target or not group then
     return "%#NormalFloat#%="
   end
 
+  local gap_highlight = entry_focused(target) and "TermBarGapFocused" or "TermBarGap"
+  local gap = "%#" .. gap_highlight .. "#"
   local parts = {}
   for index, entry in ipairs(group.terminals) do
     local title = escape_winbar_title(winbar_title(entry))
     if index > 1 then
-      parts[#parts + 1] = "%#NormalFloat# "
+      parts[#parts + 1] = gap .. " "
     end
     local title_highlight = "TermBarName"
     if index == group.active then
@@ -794,7 +796,7 @@ function M._winbar()
       parts[#parts + 1] = "%#TermBarAttention# ! "
     end
   end
-  parts[#parts + 1] = "%#NormalFloat#%="
+  parts[#parts + 1] = gap .. "%="
   return table.concat(parts)
 end
 
