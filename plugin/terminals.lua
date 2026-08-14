@@ -11,21 +11,16 @@ end, {
   desc = "Create a managed terminal",
 })
 
-vim.api.nvim_create_user_command("TermClose", function()
-  require("terminals").close()
-end, { desc = "Destroy the focused managed terminal" })
+local function terminal_command(name, method, description)
+  vim.api.nvim_create_user_command(name, function()
+    require("terminals")[method]()
+  end, { desc = description })
+end
 
-vim.api.nvim_create_user_command("TermPrev", function()
-  require("terminals").prev()
-end, { desc = "Select the previous terminal" })
-
-vim.api.nvim_create_user_command("TermNext", function()
-  require("terminals").next()
-end, { desc = "Select the next terminal" })
-
-vim.api.nvim_create_user_command("TermToggle", function()
-  require("terminals").toggle()
-end, { desc = "Toggle the selected terminal" })
+terminal_command("TermClose", "close", "Destroy the focused managed terminal")
+terminal_command("TermPrev", "prev", "Select the previous terminal")
+terminal_command("TermNext", "next", "Select the next terminal")
+terminal_command("TermToggle", "toggle", "Toggle the selected terminal")
 
 local positions = { "float", "top", "bottom", "left", "right" }
 
