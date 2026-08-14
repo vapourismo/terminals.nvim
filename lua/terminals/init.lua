@@ -157,14 +157,7 @@ local winbar_expression = "%!v:lua.require'terminals'._winbar()"
 -- lifecycle handlers must remain in a plugin-owned group.
 local lifecycle_group = vim.api.nvim_create_augroup("terminals.nvim", { clear = true })
 
----@param path string
----@return string
-local function normalize_path(path)
-  if vim.fs and vim.fs.normalize then
-    return vim.fs.normalize(path)
-  end
-  return vim.fn.fnamemodify(path, ":p")
-end
+local normalize_path = vim.fs.normalize
 
 ---@return string
 local function neovim_cwd()
