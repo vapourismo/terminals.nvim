@@ -1069,15 +1069,11 @@ local function schedule_finalization(entry, checktime)
       entry.finalization_was_focused or replace_visible_edge
     )
 
-    local close_error
-    local ok, err = pcall(function()
+    local close_ok, close_error = pcall(function()
       without_winleave(function()
         entry.terminal:close()
       end)
     end)
-    if not ok then
-      close_error = err
-    end
 
     if removed and entry.finalization_was_focused then
       focus_fallback(fallback)
@@ -1087,7 +1083,7 @@ local function schedule_finalization(entry, checktime)
     if entry.finalization_checktime then
       vim.cmd.checktime()
     end
-    if close_error then
+    if not close_ok then
       error(close_error, 0)
     end
   end)
