@@ -75,8 +75,8 @@ local side_widths = {}
 ---@return terminals.Group?
 local function group_for(owner, cwd, position)
   local tab_registry = registry[owner]
-  local position_groups = tab_registry and tab_registry[position] or nil
-  return position_groups and position_groups[cwd] or nil
+  local position_groups = tab_registry and tab_registry[position]
+  return position_groups and position_groups[cwd]
 end
 
 ---@param owner integer
@@ -95,7 +95,7 @@ end
 ---@param position string
 local function delete_group(owner, cwd, position)
   local tab_registry = registry[owner]
-  local position_groups = tab_registry and tab_registry[position] or nil
+  local position_groups = tab_registry and tab_registry[position]
   if not position_groups then
     return
   end
