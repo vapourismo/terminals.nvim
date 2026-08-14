@@ -159,7 +159,7 @@ local function path_root_and_parts(path)
   local rest
   local server, share, unc_rest = path:match("^//([^/]+)/([^/]+)(.*)$")
   local drive, drive_rest = path:match("^([A-Za-z]:)(.*)$")
-  if server and share then
+  if server then
     root = "//" .. server .. "/" .. share
     rest = unc_rest
   elseif drive then
