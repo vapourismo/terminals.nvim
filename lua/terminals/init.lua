@@ -158,20 +158,18 @@ local function path_root_and_parts(path)
   local root
   local rest
   local server, share, unc_rest = path:match("^//([^/]+)/([^/]+)(.*)$")
+  local drive, drive_rest = path:match("^([A-Za-z]:)(.*)$")
   if server and share then
     root = "//" .. server .. "/" .. share
     rest = unc_rest
+  elseif drive then
+    root = drive:lower()
+    rest = drive_rest
+  elseif path:sub(1, 1) == "/" then
+    root = "/"
+    rest = path:sub(2)
   else
-    local drive, drive_rest = path:match("^([A-Za-z]:)(.*)$")
-    if drive then
-      root = drive:lower()
-      rest = drive_rest
-    elseif path:sub(1, 1) == "/" then
-      root = "/"
-      rest = path:sub(2)
-    else
-      return nil, nil
-    end
+    return nil, nil
   end
 
   local parts = {}
