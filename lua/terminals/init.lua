@@ -1190,35 +1190,27 @@ end
 
 local function detach_closed_tabs()
   local detached = {}
-  local closed_owners = {}
-  for owner in pairs(registry) do
+  for _, owner in ipairs(vim.tbl_keys(registry)) do
     if not vim.api.nvim_tabpage_is_valid(owner) then
-      closed_owners[#closed_owners + 1] = owner
-    end
-  end
-  for _, owner in ipairs(closed_owners) do
-    for _, position_groups in pairs(registry[owner]) do
-      for _, group in pairs(position_groups) do
-        for _, entry in ipairs(group.terminals) do
-          entry.intentional_close = true
-          entry.removed = true
-          entry.focused_before_leave = false
-          entry.attention = false
-          detached[#detached + 1] = entry
+      for _, position_groups in pairs(registry[owner]) do
+        for _, group in pairs(position_groups) do
+          for _, entry in ipairs(group.terminals) do
+            entry.intentional_close = true
+            entry.removed = true
+            entry.focused_before_leave = false
+            entry.attention = false
+            detached[#detached + 1] = entry
+          end
         end
       end
+      registry[owner] = nil
+      side_widths[owner] = nil
     end
-    registry[owner] = nil
-    side_widths[owner] = nil
   end
-  local stale_width_owners = {}
-  for owner in pairs(side_widths) do
+  for _, owner in ipairs(vim.tbl_keys(side_widths)) do
     if not vim.api.nvim_tabpage_is_valid(owner) then
-      stale_width_owners[#stale_width_owners + 1] = owner
+      side_widths[owner] = nil
     end
-  end
-  for _, owner in ipairs(stale_width_owners) do
-    side_widths[owner] = nil
   end
 
   if #detached == 0 then
