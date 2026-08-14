@@ -1256,9 +1256,6 @@ function M.new(cmd, opts)
     hiding = false,
     intentional_close = false,
     removed = false,
-    focused_before_leave = false,
-    window_leave_candidate = false,
-    visible_before_leave = false,
     departure_generation = 0,
     finalization_scheduled = false,
     finalization_done = false,
@@ -1266,6 +1263,7 @@ function M.new(cmd, opts)
     finalization_was_focused = false,
     finalization_was_visible = false,
   }
+  clear_departing_state(entry)
   group.terminals[#group.terminals + 1] = entry
   group.active = #group.terminals
   attach(entry)
