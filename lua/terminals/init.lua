@@ -1257,8 +1257,9 @@ end
 ---@param opts? terminals.NewOptions
 ---@return snacks.terminal
 function M.new(cmd, opts)
-  local owner, base, position, previous = applicable_scope(opts and opts.position)
-  local cwd = resolve_cwd(opts and opts.cwd, base)
+  opts = opts or {}
+  local owner, base, position, previous = applicable_scope(opts.position)
+  local cwd = resolve_cwd(opts.cwd, base)
   local foreground = cwd == base
   next_count = next_count + 1
 
@@ -1288,7 +1289,7 @@ function M.new(cmd, opts)
     position = position,
     cmd = cmd,
     terminal = terminal,
-    title = opts and opts.title,
+    title = opts.title,
     attention = false,
     hiding = false,
     intentional_close = false,
