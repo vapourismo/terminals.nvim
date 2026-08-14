@@ -87,16 +87,20 @@ function Terminal:focus()
   return self
 end
 
+function Terminal:_emit_term_close(status)
+  if self:buf_valid() then
+    vim.api.nvim_exec_autocmds("TermClose", {
+      buffer = self.buf,
+      data = { status = status },
+    })
+  end
+end
+
 function Terminal:close()
   self.close_count = self.close_count + 1
   if self.process_running then
     self.process_running = false
-    if self:buf_valid() then
-      vim.api.nvim_exec_autocmds("TermClose", {
-        buffer = self.buf,
-        data = { status = 129 },
-      })
-    end
+    self:_emit_term_close(129)
   end
   self:hide()
   if self:buf_valid() then
@@ -138,12 +142,7 @@ function Terminal:eof(opts)
     self:_invalidate_window()
   end
 
-  if self:buf_valid() then
-    vim.api.nvim_exec_autocmds("TermClose", {
-      buffer = self.buf,
-      data = { status = 0 },
-    })
-  end
+  self:_emit_term_close(0)
 
   if opts.invalidate_before_deferred then
     self:_invalidate_window()
@@ -157,12 +156,7 @@ function Terminal:exit(status)
     return self
   end
   self.process_running = false
-  if self:buf_valid() then
-    vim.api.nvim_exec_autocmds("TermClose", {
-      buffer = self.buf,
-      data = { status = status },
-    })
-  end
+  self:_emit_term_close(status)
   return self
 end
 
