@@ -254,7 +254,9 @@ have independent attention state.
 
 Intentional closes through `close()`, `:TermClose`, or the default `<D-w>`
 mapping are silent. A command that exits unsuccessfully still reports its exit
-status and keeps the terminal open for inspection; a successful exit closes it.
+status and keeps the terminal open for inspection in Normal mode, so ordinary
+keypresses do not dismiss it. Restoring the failed terminal or trying to re-enter
+Terminal mode keeps it in Normal mode. A successful exit closes the terminal.
 `Ctrl+D` is not remapped: it continues to send EOF to the shell, and when that
 ends a focused managed shell successfully it triggers the same adjacent-terminal
 handoff. When a focused terminal is closed, exits successfully (including via

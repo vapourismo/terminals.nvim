@@ -136,6 +136,21 @@ local function with_cleanup(callback, cleanup)
   end
 end
 
+local function with_stopinsert_spy(callback)
+  local stopinsert = vim.cmd.stopinsert
+  local calls = 0
+  with_cleanup(function()
+    vim.cmd.stopinsert = function()
+      calls = calls + 1
+    end
+    callback(function()
+      return calls
+    end)
+  end, function()
+    vim.cmd.stopinsert = stopinsert
+  end)
+end
+
 local function with_channel_mocks(channels, callback, send_impl)
   local get_option_value = vim.api.nvim_get_option_value
   local chan_send = vim.api.nvim_chan_send
@@ -519,28 +534,66 @@ test("handles spontaneous process exits by status", function()
   cd(dir)
   local notifications = #stub.notifications
 
-  local failed = terminals.new("failure")
-  local failed_buffer = failed.buf
-  failed:exit(17)
-  same(#stub.notifications, notifications + 1, "a non-zero exit should notify exactly once")
-  same(
-    stub.notifications[#stub.notifications],
-    "Terminal exited with code 17.\nCheck for any errors.",
-    "a non-zero exit should retain the Snacks error message"
-  )
-  truthy(vim.api.nvim_buf_is_valid(failed_buffer), "a failed terminal should remain available for inspection")
-  same(failed.close_count, 0, "a failed terminal should not be closed automatically")
-  same(terminals.prev(), failed, "a failed terminal should remain in the registry")
-  same(terminals.close(), failed, "a failed terminal should still support intentional close")
+  with_stopinsert_spy(function(stopinsert_calls)
+    local failed = terminals.new("failure")
+    local failed_buffer = failed.buf
+    failed:exit(17)
+    same(stopinsert_calls(), 1, "a focused non-zero exit should leave Terminal mode immediately")
+    same(#stub.notifications, notifications + 1, "a non-zero exit should notify exactly once")
+    same(
+      stub.notifications[#stub.notifications],
+      "Terminal exited with code 17.\nCheck for any errors.",
+      "a non-zero exit should retain the Snacks error message"
+    )
+    truthy(vim.api.nvim_buf_is_valid(failed_buffer), "a failed terminal should remain available for inspection")
+    same(failed.close_count, 0, "a failed terminal should not be closed automatically")
+    same(terminals.prev(), failed, "a failed terminal should remain in the registry")
 
-  local successful = terminals.new("success")
-  local successful_buffer = successful.buf
-  successful:exit(0)
-  eventually_invalid(successful, "a successful terminal should close automatically")
-  falsy(vim.api.nvim_buf_is_valid(successful_buffer), "the successful terminal buffer should be invalid")
-  same(successful.close_count, 1, "a successful terminal should close its Snacks object")
-  same(#stub.notifications, notifications + 1, "a zero exit should not notify")
-  same(terminals.prev(), nil, "a successful terminal should be removed from the registry")
+    vim.api.nvim_exec_autocmds("TermEnter", { buffer = failed.buf })
+    same(stopinsert_calls(), 2, "a failed terminal should leave Terminal mode again after TermEnter")
+    same(terminals.close(), failed, "a failed terminal should still support intentional close")
+
+    local successful = terminals.new("success")
+    local successful_buffer = successful.buf
+    successful:exit(0)
+    eventually_invalid(successful, "a successful terminal should close automatically")
+    falsy(vim.api.nvim_buf_is_valid(successful_buffer), "the successful terminal buffer should be invalid")
+    same(successful.close_count, 1, "a successful terminal should close its Snacks object")
+    same(stopinsert_calls(), 2, "a successful exit should not request a Terminal-mode transition")
+    same(#stub.notifications, notifications + 1, "a zero exit should not notify")
+    same(terminals.prev(), nil, "a successful terminal should be removed from the registry")
+  end)
+end)
+
+test("keeps background failures from changing the focused mode", function()
+  cd(directory("background-failure-mode"))
+  local notifications = #stub.notifications
+
+  with_stopinsert_spy(function(stopinsert_calls)
+    local background = terminals.new("background")
+    local focused = terminals.new("focused")
+    falsy(background:win_valid(), "the background terminal should be hidden before it fails")
+
+    background:exit(23)
+    same(stopinsert_calls(), 0, "a hidden failure should not leave the focused terminal's mode")
+    current_is(focused)
+    truthy(background:buf_valid(), "a hidden failed terminal should remain available for inspection")
+    same(#stub.notifications, notifications + 1, "a hidden failure should still notify exactly once")
+
+    vim.api.nvim_exec_autocmds("TermEnter", { buffer = background.buf })
+    same(stopinsert_calls(), 0, "a background lifecycle event should not change the focused terminal's mode")
+    current_is(focused)
+
+    same(terminals.prev(), background, "the retained hidden failure should be restorable")
+    vim.api.nvim_exec_autocmds("TermEnter", { buffer = background.buf })
+    same(stopinsert_calls(), 1, "a restored failed terminal should leave Terminal mode on TermEnter")
+    vim.api.nvim_exec_autocmds("TermEnter", { buffer = background.buf })
+    same(stopinsert_calls(), 2, "a manual Terminal-mode re-entry should be rejected again")
+
+    same(terminals.close(), background, "the retained failure should remain explicitly closable")
+    current_is(focused)
+    terminals.close()
+  end)
 end)
 
 test("hands Ctrl+D from a middle terminal to its predecessor", function()

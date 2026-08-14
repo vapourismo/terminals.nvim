@@ -506,6 +506,13 @@ local function entry_focused(entry)
 end
 
 ---@param entry terminals.Entry
+local function leave_failed_terminal_mode(entry)
+  if entry.exit_status ~= nil and entry.exit_status ~= 0 and entry_focused(entry) then
+    vim.cmd.stopinsert()
+  end
+end
+
+---@param entry terminals.Entry
 local function clear_departing_state(entry)
   entry.focused_before_leave = false
   entry.window_leave_candidate = false
@@ -1095,6 +1102,10 @@ local function attach(entry)
     set_attention(entry, false)
   end)
 
+  on_terminal_event("TermEnter", function()
+    leave_failed_terminal_mode(entry)
+  end)
+
   on_terminal_event("TermClose", function(event)
     if entry.intentional_close then
       return
@@ -1107,6 +1118,7 @@ local function attach(entry)
     if status ~= 0 then
       entry.exit_status = status
       vim.cmd.redrawstatus()
+      leave_failed_terminal_mode(entry)
       snacks().notify.error("Terminal exited with code " .. status .. ".\nCheck for any errors.")
       return
     end

@@ -318,9 +318,11 @@ closes every terminal it owns, including hidden and failed terminals,
 terminates running jobs, and wipes retained buffers without reporting expected
 termination errors. Terminals in remaining tabs are unaffected. A spontaneous
 non-zero process exit still reports an error and preserves the terminal for
-inspection; a zero exit closes and removes it. Ctrl+D is not remapped: it sends
-EOF to the shell, and a resulting successful exit from a focused managed shell
-uses the same adjacent-terminal handoff.
+inspection in Normal mode, so ordinary keypresses do not dismiss it. Restoring
+the failed terminal or trying to re-enter Terminal mode keeps it in Normal
+mode. A zero exit closes and removes the terminal. Ctrl+D is not remapped: it
+sends EOF to the shell, and a resulting successful exit from a focused managed
+shell uses the same adjacent-terminal handoff.
 
 When the removed terminal was focused, including when Ctrl+D ended its shell,
 its immediate predecessor in creation order from the same owner tab,
