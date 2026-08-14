@@ -1,7 +1,5 @@
 local M = {}
 
-local unpack = unpack or table.unpack
-
 local function pack(...)
   return { n = select("#", ...), ... }
 end
