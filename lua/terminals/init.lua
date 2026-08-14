@@ -894,16 +894,12 @@ local function visual_selection(command)
   local start_position
   local end_position
   if command then
-    if command.range ~= 2 then
-      notify_error("TermSend must be called from Visual mode.")
-      return nil
-    end
-
     mode = vim.fn.visualmode()
     start_position = vim.fn.getpos("'<")
     end_position = vim.fn.getpos("'>")
     if
-      type(command.line1) ~= "number"
+      command.range ~= 2
+      or type(command.line1) ~= "number"
       or type(command.line2) ~= "number"
       or start_position[2] ~= command.line1
       or end_position[2] ~= command.line2
