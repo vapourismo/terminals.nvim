@@ -739,7 +739,7 @@ function M._winbar()
   local win = tonumber(vim.g.statusline_winid) or 0
   local target = entry_for_win(win)
   local group = target and prune(target.owner, target.cwd, target.position)
-  if not target or not group then
+  if not group then
     return "%#NormalFloat#%="
   end
 
