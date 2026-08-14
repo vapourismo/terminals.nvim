@@ -49,9 +49,7 @@ end
 ---@field terminals terminals.Entry[]
 ---@field active integer
 
-local defaults = {
-  position = "float",
-}
+local default_position = "float"
 
 local positions = { "float", "top", "bottom", "left", "right" }
 local valid_positions = {}
@@ -60,7 +58,7 @@ for _, position in ipairs(positions) do
 end
 
 ---@type terminals.Config
-local config = vim.deepcopy(defaults)
+local config = { position = default_position }
 
 ---@type table<integer, table<string, table<string, terminals.Group>>>
 local registry = {}
@@ -1298,7 +1296,7 @@ synchronize_tab_attention()
 ---Configure terminals created after this call.
 ---@param opts? terminals.Config
 function M.setup(opts)
-  config.position = opts and opts.position or defaults.position
+  config.position = opts and opts.position or default_position
 end
 
 ---Create a terminal for its effective directory, focusing it when that directory is applicable.
