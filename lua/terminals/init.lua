@@ -1071,8 +1071,7 @@ local function attach(entry)
   end
 
   on_terminal_event("TermRequest", function(event)
-    local data = type(event.data) == "table" and event.data or nil
-    local sequence = data and data.sequence
+    local sequence = type(event.data) == "table" and event.data.sequence
     if type(sequence) ~= "string" then
       return
     end
