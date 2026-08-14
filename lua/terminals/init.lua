@@ -975,7 +975,6 @@ local function record_departing_state(entry, event, terminal_buf)
   end
 
   local event_name = event.event
-  local current_buffer = vim.api.nvim_get_current_buf()
   local leaves_current_window = event_name == "WinLeave"
   if leaves_current_window then
     -- WinLeave also fires for an ordinary move to the editor. Keep it as a
@@ -985,7 +984,7 @@ local function record_departing_state(entry, event, terminal_buf)
   end
   local confirms_teardown = event_name == "BufWinLeave" or event_name == "BufWipeout"
   local was_focused = confirms_teardown
-    and (current_buffer == terminal_buf or entry.window_leave_candidate)
+    and (vim.api.nvim_get_current_buf() == terminal_buf or entry.window_leave_candidate)
   local was_visible = leaves_current_window
     or event_name == "BufLeave"
     or event_name == "BufWinLeave"
