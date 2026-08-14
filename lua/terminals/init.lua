@@ -39,7 +39,6 @@ end
 ---@field departure_generation integer
 ---@field finalization_scheduled boolean
 ---@field finalization_done boolean
----@field finalization_close boolean
 ---@field finalization_checktime boolean
 ---@field finalization_was_focused boolean
 ---@field finalization_was_visible boolean
@@ -1038,9 +1037,8 @@ local function record_departing_state(entry, event, terminal_buf)
 end
 
 ---@param entry terminals.Entry
----@param close_terminal boolean
 ---@param checktime boolean
-local function schedule_finalization(entry, close_terminal, checktime)
+local function schedule_finalization(entry, checktime)
   if entry.finalization_done or entry.intentional_close then
     return
   end
@@ -1048,7 +1046,6 @@ local function schedule_finalization(entry, close_terminal, checktime)
   local was_focused, was_visible = consume_departing_state(entry)
   entry.finalization_was_focused = entry.finalization_was_focused or was_focused
   entry.finalization_was_visible = entry.finalization_was_visible or was_visible
-  entry.finalization_close = entry.finalization_close or close_terminal
   entry.finalization_checktime = entry.finalization_checktime or checktime
 
   if entry.finalization_scheduled then
@@ -1073,15 +1070,13 @@ local function schedule_finalization(entry, close_terminal, checktime)
     )
 
     local close_error
-    if entry.finalization_close then
-      local ok, err = pcall(function()
-        without_winleave(function()
-          entry.terminal:close()
-        end)
+    local ok, err = pcall(function()
+      without_winleave(function()
+        entry.terminal:close()
       end)
-      if not ok then
-        close_error = err
-      end
+    end)
+    if not ok then
+      close_error = err
     end
 
     if removed and entry.finalization_was_focused then
@@ -1161,7 +1156,7 @@ local function attach(entry)
       return
     end
 
-    schedule_finalization(entry, true, true)
+    schedule_finalization(entry, true)
   end)
 
   on_terminal_event({ "BufLeave", "BufWinLeave" }, function(event)
@@ -1171,7 +1166,7 @@ local function attach(entry)
 
   on_terminal_event("BufWipeout", function(event)
     record_departing_state(entry, event, terminal_buf)
-    schedule_finalization(entry, true, false)
+    schedule_finalization(entry, false)
   end)
 
   on_terminal_event("WinLeave", function(event)
@@ -1316,7 +1311,6 @@ function M.new(cmd, opts)
     departure_generation = 0,
     finalization_scheduled = false,
     finalization_done = false,
-    finalization_close = false,
     finalization_checktime = false,
     finalization_was_focused = false,
     finalization_was_visible = false,
