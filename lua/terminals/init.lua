@@ -513,6 +513,13 @@ local function entry_focused(entry)
 end
 
 ---@param entry terminals.Entry
+local function clear_departing_state(entry)
+  entry.focused_before_leave = false
+  entry.window_leave_candidate = false
+  entry.visible_before_leave = false
+end
+
+---@param entry terminals.Entry
 ---@return boolean, boolean
 local function consume_departing_state(entry)
   local invalidated_departure = entry.window_leave_candidate
@@ -520,9 +527,7 @@ local function consume_departing_state(entry)
   local was_focused = entry.focused_before_leave or entry_focused(entry) or invalidated_departure
   local was_visible = entry.visible_before_leave or win_valid(entry.terminal)
   entry.departure_generation = entry.departure_generation + 1
-  entry.focused_before_leave = false
-  entry.window_leave_candidate = false
-  entry.visible_before_leave = false
+  clear_departing_state(entry)
   return was_focused, was_visible
 end
 
@@ -1029,9 +1034,7 @@ local function record_departing_state(entry, event, terminal_buf)
   -- marker before this scheduled reset runs.
   vim.schedule(function()
     if entry.departure_generation == generation and not entry.finalization_scheduled then
-      entry.focused_before_leave = false
-      entry.window_leave_candidate = false
-      entry.visible_before_leave = false
+      clear_departing_state(entry)
     end
   end)
 end
@@ -1129,9 +1132,7 @@ local function attach(entry)
 
   on_terminal_event({ "BufEnter", "WinEnter" }, function()
     entry.departure_generation = entry.departure_generation + 1
-    entry.focused_before_leave = false
-    entry.window_leave_candidate = false
-    entry.visible_before_leave = false
+    clear_departing_state(entry)
     select_entry(entry)
     set_attention(entry, false)
   end)
