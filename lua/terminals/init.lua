@@ -422,7 +422,6 @@ local function remove_entry(entry, select_fallback)
     return nil, false
   end
 
-  local selected = group.terminals[group.active]
   local removed_index = entry_index(group.terminals, entry)
   if not removed_index then
     return nil, false
@@ -433,7 +432,7 @@ local function remove_entry(entry, select_fallback)
 
   if #group.terminals == 0 then
     delete_group(entry.owner, entry.cwd, entry.position)
-  elseif select_fallback or selected == entry then
+  elseif select_fallback or removed_index == group.active then
     group.active = removed_index > 1 and removed_index - 1 or 1
   else
     if removed_index < group.active then
