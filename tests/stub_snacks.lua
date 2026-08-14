@@ -10,11 +10,11 @@ Terminal.__index = Terminal
 local next_id = 0
 
 function Terminal:buf_valid()
-  return self.buf and vim.api.nvim_buf_is_valid(self.buf) or false
+  return self.buf and vim.api.nvim_buf_is_valid(self.buf)
 end
 
 function Terminal:win_valid()
-  return self.win and vim.api.nvim_win_is_valid(self.win) or false
+  return self.win and vim.api.nvim_win_is_valid(self.win)
 end
 
 function Terminal:_create_autocmd(handler)
