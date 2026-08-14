@@ -1365,13 +1365,11 @@ function M.close()
 
   entry.intentional_close = true
   remember_side_width(entry.owner, entry.position, entry.terminal)
-  local fallback, removed = remove_entry(entry, true)
+  local fallback = remove_entry(entry, true)
   without_winleave(function()
     entry.terminal:close()
   end)
-  if removed then
-    focus_fallback(fallback)
-  end
+  focus_fallback(fallback)
   return entry.terminal
 end
 
