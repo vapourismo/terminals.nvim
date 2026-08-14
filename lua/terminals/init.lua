@@ -298,11 +298,8 @@ local function remember_side_width(owner, position, terminal)
   if not is_side(position) or not win_valid(terminal) then
     return
   end
-  local ok, width = pcall(vim.api.nvim_win_get_width, terminal.win)
-  if ok then
-    side_widths[owner] = side_widths[owner] or {}
-    side_widths[owner][position] = width
-  end
+  side_widths[owner] = side_widths[owner] or {}
+  side_widths[owner][position] = vim.api.nvim_win_get_width(terminal.win)
 end
 
 ---@param owner integer
