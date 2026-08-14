@@ -560,18 +560,13 @@ focused_entry = function()
   end
 end
 
----@return string
-local function configured_position()
-  return config.position or "float"
-end
-
 ---@param position? string
 ---@return integer, string, string, terminals.Entry?
 local function applicable_scope(position)
   local owner = vim.api.nvim_get_current_tabpage()
   local entry = focused_entry()
   local cwd = entry and entry.cwd or neovim_cwd()
-  return owner, cwd, position or (entry and entry.position or configured_position()), entry
+  return owner, cwd, position or (entry and entry.position) or config.position, entry
 end
 
 ---@param cwd? string
@@ -1321,8 +1316,7 @@ end
 ---@param opts? terminals.NewOptions
 ---@return snacks.terminal
 function M.new(cmd, opts)
-  local requested_position = opts and opts.position or nil
-  local owner, base, position, previous = applicable_scope(requested_position)
+  local owner, base, position, previous = applicable_scope(opts and opts.position)
   local cwd = resolve_cwd(opts and opts.cwd, base)
   local foreground = cwd == base
   next_count = next_count + 1
@@ -1413,7 +1407,7 @@ end
 ---@param opts? terminals.ScopeOptions
 ---@return snacks.terminal?
 local function cycle(offset, opts)
-  local owner, cwd, position = applicable_scope(opts and opts.position or nil)
+  local owner, cwd, position = applicable_scope(opts and opts.position)
   local group = prune(owner, cwd, position)
   if not group then
     return nil
@@ -1441,8 +1435,7 @@ end
 ---@param opts? terminals.ScopeOptions
 ---@return snacks.terminal
 function M.toggle(opts)
-  local position_override = opts and opts.position or nil
-  local owner, cwd, position = applicable_scope(position_override)
+  local owner, cwd, position = applicable_scope(opts and opts.position)
   local group = prune(owner, cwd, position)
   if not group then
     return M.new(nil, { position = position })
