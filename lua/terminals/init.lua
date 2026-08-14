@@ -321,7 +321,7 @@ local function enforce_side_window(owner, position, terminal)
 
   if win_valid(terminal) then
     pcall(vim.api.nvim_set_option_value, "winfixwidth", false, { win = terminal.win })
-    local width = side_widths[owner] and side_widths[owner][position] or nil
+    local width = side_widths[owner] and side_widths[owner][position]
     if width then
       pcall(vim.api.nvim_win_set_width, terminal.win, width)
     end
@@ -494,7 +494,7 @@ end
 ---@param entry terminals.Entry
 local function select_entry(entry)
   local group = group_for(entry.owner, entry.cwd, entry.position)
-  local index = group and entry_index(group.terminals, entry) or nil
+  local index = group and entry_index(group.terminals, entry)
   if index then
     group.active = index
   end
@@ -753,7 +753,7 @@ end
 function M._winbar()
   local win = tonumber(vim.g.statusline_winid) or 0
   local target = entry_for_win(win)
-  local group = target and prune(target.owner, target.cwd, target.position) or nil
+  local group = target and prune(target.owner, target.cwd, target.position)
   if not target or not group then
     return "%#NormalFloat#%="
   end
@@ -807,7 +807,7 @@ local function window_options(owner, position)
     keys = keys,
   }
   if is_side(position) then
-    win.width = side_widths[owner] and side_widths[owner][position] or nil
+    win.width = side_widths[owner] and side_widths[owner][position]
     win.on_win = function(snacks_win)
       -- Snacks forces fixed dimensions for splits after merging window options.
       enforce_side_window(owner, position, snacks_win)
@@ -1145,7 +1145,7 @@ local function attach(entry)
 
   on_terminal_event("TermRequest", function(event)
     local data = type(event.data) == "table" and event.data or nil
-    local sequence = data and data.sequence or nil
+    local sequence = data and data.sequence
     if type(sequence) ~= "string" then
       return
     end
@@ -1466,7 +1466,7 @@ function M.send(opts)
     else
       local scope_owner, cwd, resolved_position = applicable_scope(position)
       local group = prune(scope_owner, cwd, resolved_position)
-      entry = group and group.terminals[group.active] or nil
+      entry = group and group.terminals[group.active]
       target_cwd = entry and entry.cwd or cwd
     end
   else
