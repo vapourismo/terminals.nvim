@@ -780,7 +780,7 @@ function M._winbar()
     if index > 1 then
       parts[#parts + 1] = "%#NormalFloat# "
     end
-    parts[#parts + 1] = index == group.active and "%#WinBarNameActive# " or "%#WinBarName# "
+    parts[#parts + 1] = index == group.active and "%#TermBarNameActive# " or "%#TermBarName# "
     parts[#parts + 1] = title
     parts[#parts + 1] = " "
     if entry.exit_status ~= nil then
