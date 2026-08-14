@@ -379,10 +379,10 @@ end
 
 ---@param entry terminals.Entry
 ---@param select_fallback? boolean
----@return terminals.Entry?, boolean
+---@return terminals.Entry?
 local function remove_entry(entry, select_fallback)
   if entry.removed then
-    return nil, false
+    return nil
   end
   entry.removed = true
   if entry.attention then
@@ -391,12 +391,12 @@ local function remove_entry(entry, select_fallback)
 
   local group = group_for(entry.owner, entry.cwd, entry.position)
   if not group then
-    return nil, false
+    return nil
   end
 
   local removed_index = entry_index(group.terminals, entry)
   if not removed_index then
-    return nil, false
+    return nil
   end
 
   local fallback = group.terminals[removed_index - 1] or group.terminals[removed_index + 1]
@@ -409,7 +409,7 @@ local function remove_entry(entry, select_fallback)
   elseif removed_index < group.active then
     group.active = group.active - 1
   end
-  return fallback, true
+  return fallback
 end
 
 ---@param callback function
@@ -1051,10 +1051,7 @@ local function schedule_finalization(entry, checktime)
 
     local replace_visible_edge = entry.finalization_was_visible and is_split(entry.position)
     remember_side_width(entry.owner, entry.position, entry.terminal)
-    local fallback, removed = remove_entry(
-      entry,
-      entry.finalization_was_focused or replace_visible_edge
-    )
+    local fallback = remove_entry(entry, entry.finalization_was_focused or replace_visible_edge)
 
     local close_ok, close_error = pcall(function()
       without_winleave(function()
@@ -1062,9 +1059,9 @@ local function schedule_finalization(entry, checktime)
       end)
     end)
 
-    if removed and entry.finalization_was_focused then
+    if entry.finalization_was_focused then
       focus_fallback(fallback)
-    elseif removed and replace_visible_edge then
+    elseif replace_visible_edge then
       show_unfocused_edge_fallback(fallback)
     end
     if entry.finalization_checktime then
