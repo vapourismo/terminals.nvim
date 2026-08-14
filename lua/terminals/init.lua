@@ -776,7 +776,7 @@ function M._winbar()
 
   local gap_highlight = entry_focused(target) and "TermBarGapFocused" or "TermBarGap"
   local gap = "%#" .. gap_highlight .. "#"
-  local parts = {}
+  local parts = { gap .. " " }
   for index, entry in ipairs(group.terminals) do
     local title = escape_winbar_title(winbar_title(entry))
     if index > 1 then
