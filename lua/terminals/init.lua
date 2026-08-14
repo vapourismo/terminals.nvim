@@ -156,11 +156,6 @@ local lifecycle_group = vim.api.nvim_create_augroup("terminals.nvim", { clear = 
 
 local normalize_path = vim.fs.normalize
 
----@return string
-local function neovim_cwd()
-  return normalize_path(vim.fn.getcwd())
-end
-
 ---@param path string
 ---@return boolean
 local function path_is_absolute(path)
@@ -556,7 +551,7 @@ end
 local function applicable_scope(position)
   local owner = vim.api.nvim_get_current_tabpage()
   local entry = focused_entry()
-  local cwd = entry and entry.cwd or neovim_cwd()
+  local cwd = entry and entry.cwd or normalize_path(vim.fn.getcwd())
   return owner, cwd, position or (entry and entry.position) or configured_position, entry
 end
 
