@@ -434,7 +434,18 @@ local function hide_visible(owner, position, except)
   end
 end
 
-local focused_entry
+---@return terminals.Entry?
+local function focused_entry()
+  local owner = vim.api.nvim_get_current_tabpage()
+  prune_all(owner)
+  local current_win = vim.api.nvim_get_current_win()
+  local current_buf = vim.api.nvim_get_current_buf()
+  for _, entry in ipairs(registry_entries(owner)) do
+    if entry.terminal.win == current_win and entry.terminal.buf == current_buf then
+      return entry
+    end
+  end
+end
 
 ---@param previous? terminals.Entry
 ---@param next_position string
@@ -511,19 +522,6 @@ local function consume_departing_state(entry)
   entry.departure_generation = entry.departure_generation + 1
   clear_departing_state(entry)
   return was_focused, was_visible
-end
-
----@return terminals.Entry?
-focused_entry = function()
-  local owner = vim.api.nvim_get_current_tabpage()
-  prune_all(owner)
-  local current_win = vim.api.nvim_get_current_win()
-  local current_buf = vim.api.nvim_get_current_buf()
-  for _, entry in ipairs(registry_entries(owner)) do
-    if entry.terminal.win == current_win and entry.terminal.buf == current_buf then
-      return entry
-    end
-  end
 end
 
 ---@param position? string
