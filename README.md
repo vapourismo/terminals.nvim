@@ -236,12 +236,14 @@ created without a command is labeled `terminal`. The selected title uses
 `TermBarNameFocused` when its managed terminal window and buffer are current,
 and `TermBarNameActive` otherwise, including when an edge terminal remains
 visible after focus moves to an editor window. Other titles use `TermBarName`.
-Titles remain in creation order, and each has one highlighted padding space on
-both sides. A retained terminal that exits with a non-zero status appends its
-numeric code directly after its title, with one padding space on both sides
-highlighted by `TermBarStatus`. A dedicated one-cell space precedes the first
-title's padding. This leading space, the separator space between terminal entries,
-and the trailing winbar fill use the bar's base highlight: `TermBar` when the
+Titles remain in creation order. Title, exit-status, and attention items each
+have one highlighted padding space on both sides. The first title's padding
+begins at cell 0, with no dedicated base-highlight space before it. A retained
+terminal that exits with a non-zero status appends its numeric code after its
+title, highlighted by `TermBarStatus`. The one-cell base-highlight separator
+before each later terminal entry remains, so all spacing between items is
+preserved.
+These separators and the trailing full-width winbar fill use `TermBar` when the
 rendered managed terminal window and buffer are current, and `TermBarNC`
 otherwise. Thus, a visible edge terminal switches its non-item regions to
 `TermBarNC` after focus moves to an editor while its selected entry remains
@@ -262,11 +264,11 @@ non-empty. Otherwise, the complete message remains the body and the title is
 `a terminal needs attention`, including when a valid title was provided.
 
 When emitted by an unfocused managed terminal, the notification also adds a
-padded `!` box after that terminal's exit-status box, highlighted by
-`TermBarAttention`. Repeated notifications retain a single mark. Focusing the
-terminal clears it, and notifications emitted while the terminal is focused do
-not set the mark. OSC 9;4 progress sequences and unrelated terminal requests
-do not issue notifications or set attention.
+padded `!` box after that terminal's title and any exit-status box, highlighted
+by `TermBarAttention`. Repeated notifications retain a single mark. Focusing the
+terminal clears it. Notifications emitted while the terminal is focused do not
+set the mark. OSC 9;4 progress sequences and unrelated terminal requests do not
+issue notifications or set attention.
 
 The plugin also owns the boolean tabpage variable `t:attention` for custom
 tablines. It is `true` when at least one valid terminal owned by that tabpage

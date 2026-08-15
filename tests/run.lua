@@ -423,13 +423,12 @@ test("makes a visible TermSend target the active terminal", function()
   end)
 
   local rendered = eval_winbar(visible, 28)
-  same(rendered.str, "  visible   background " .. string.rep(" ", 5), "the focused send target should be selected")
+  same(rendered.str, " visible   background " .. string.rep(" ", 6), "the focused send target should be selected")
   same(highlight_spans(rendered), {
-    { group = "TermBar", start = 0 },
-    { group = "TermBarNameFocused", start = 1 },
-    { group = "TermBar", start = 10 },
-    { group = "TermBarName", start = 11 },
-    { group = "TermBar", start = 23 },
+    { group = "TermBarNameFocused", start = 0 },
+    { group = "TermBar", start = 9 },
+    { group = "TermBarName", start = 10 },
+    { group = "TermBar", start = 22 },
   }, "TermSend should move the focused winbar and base highlights to its visible target")
   same(terminals.next(), background, "cycling should continue from the visible send target")
   current_is(background)
@@ -881,7 +880,7 @@ test("retains hidden failed exits for inspection without stealing focus", functi
   local rendered = eval_winbar(failed, 24)
   same(
     rendered.str,
-    "  failed  17   focused " .. string.rep(" ", 1),
+    " failed  17   focused " .. string.rep(" ", 2),
     "a hidden failed terminal should display its preserved status when reopened"
   )
 end)
@@ -1014,12 +1013,12 @@ test("isolates navigation, visibility, winbars, and fallback by position", funct
 
   same(
     eval_winbar(left_two, 32).str,
-    "  left-one   left-two " .. string.rep(" ", 10),
+    " left-one   left-two " .. string.rep(" ", 11),
     "the left winbar should contain only the left group"
   )
   same(
     eval_winbar(right_two, 32).str,
-    "  right-one   right-two " .. string.rep(" ", 8),
+    " right-one   right-two " .. string.rep(" ", 9),
     "the right winbar should contain only the right group"
   )
 
@@ -1076,11 +1075,10 @@ test("keeps edge terminals visible on WinLeave while floats auto-hide", function
   local edge_hide_count = edge.hide_count
   local rendered = eval_winbar(edge, 24)
   same(highlight_spans(rendered), {
-    { group = "TermBar", start = 0 },
-    { group = "TermBarName", start = 1 },
-    { group = "TermBar", start = 11 },
-    { group = "TermBarNameFocused", start = 12 },
-    { group = "TermBar", start = 18 },
+    { group = "TermBarName", start = 0 },
+    { group = "TermBar", start = 10 },
+    { group = "TermBarNameFocused", start = 11 },
+    { group = "TermBar", start = 17 },
   }, "a focused edge should use TermBar for every non-item region")
 
   vim.api.nvim_set_current_win(main_win)
@@ -1091,11 +1089,10 @@ test("keeps edge terminals visible on WinLeave while floats auto-hide", function
   same(edge.hide_count, edge_hide_count, "WinLeave should not hide an edge terminal")
   rendered = eval_winbar(edge, 24)
   same(highlight_spans(rendered), {
-    { group = "TermBarNC", start = 0 },
-    { group = "TermBarName", start = 1 },
-    { group = "TermBarNC", start = 11 },
-    { group = "TermBarNameActive", start = 12 },
-    { group = "TermBarNC", start = 18 },
+    { group = "TermBarName", start = 0 },
+    { group = "TermBarNC", start = 10 },
+    { group = "TermBarNameActive", start = 11 },
+    { group = "TermBarNC", start = 17 },
   }, "an unfocused visible edge should keep its active selection and use TermBarNC")
 
   local float = terminals.new("float", { position = "float" })
@@ -1142,8 +1139,8 @@ test("isolates the Cartesian product of directories and positions", function()
   same(terminals.toggle({ position = "right" }), b_right, "directory B should retain its right selection")
   falsy(a_right:win_valid(), "showing directory B's right terminal should replace directory A's right terminal")
   truthy(b_left:win_valid(), "showing a right terminal should preserve directory B's left terminal")
-  same(eval_winbar(b_left, 20).str, "  b-left " .. string.rep(" ", 11), "left winbar scope should be exact")
-  same(eval_winbar(b_right, 20).str, "  b-right " .. string.rep(" ", 10), "right winbar scope should be exact")
+  same(eval_winbar(b_left, 20).str, " b-left " .. string.rep(" ", 12), "left winbar scope should be exact")
+  same(eval_winbar(b_right, 20).str, " b-right " .. string.rep(" ", 11), "right winbar scope should be exact")
 end)
 
 test("starts an absolute cross-directory terminal hidden and reuses it later", function()
@@ -1166,7 +1163,7 @@ test("starts an absolute cross-directory terminal hidden and reuses it later", f
   current_is(terminal)
   same(
     eval_winbar(terminal, 20).str,
-    "  Absolute " .. string.rep(" ", 9),
+    " Absolute " .. string.rep(" ", 10),
     "cwd and title options should compose"
   )
 
@@ -1276,7 +1273,7 @@ test("groups a cross-cwd terminal with the current carousel", function()
   current_is(grouped)
   same(
     eval_winbar(grouped, 24).str,
-    "  group   cross " .. string.rep(" ", 8),
+    " group   cross " .. string.rep(" ", 9),
     "mixed-cwd terminals should share one creation-ordered winbar"
   )
 
@@ -1292,7 +1289,7 @@ test("groups a cross-cwd terminal with the current carousel", function()
   current_is(plain)
   same(
     eval_winbar(plain, 32).str,
-    "  group   cross   plain " .. string.rep(" ", 8),
+    " group   cross   plain " .. string.rep(" ", 9),
     "plain new() should remain in the mixed-cwd carousel"
   )
 
@@ -1371,7 +1368,7 @@ test("keeps omitted and false group options cwd-isolated", function()
   same(omitted.opts.win.enter, false, "an omitted group option should use background window options")
   same(disabled.opts.win.enter, false, "group=false should use background window options")
   truthy(base:win_valid(), "isolated cross-cwd creation should preserve the visible base terminal")
-  same(eval_winbar(base, 20).str, "  base " .. string.rep(" ", 13), "the base winbar should remain cwd-isolated")
+  same(eval_winbar(base, 20).str, " base " .. string.rep(" ", 14), "the base winbar should remain cwd-isolated")
   same(terminals.prev(), base, "the base carousel should exclude isolated cross-cwd terminals")
 
   vim.api.nvim_set_current_win(main_win)
@@ -1379,7 +1376,7 @@ test("keeps omitted and false group options cwd-isolated", function()
   same(terminals.toggle({ position = "left" }), disabled, "the process-cwd group should retain its active selection")
   same(
     eval_winbar(disabled, 32).str,
-    "  omitted   disabled " .. string.rep(" ", 11),
+    " omitted   disabled " .. string.rep(" ", 12),
     "omitted and false options should share only their process-cwd carousel"
   )
 end)
@@ -1419,28 +1416,26 @@ test("renders command-derived winbar titles and ignores buffer titles", function
   local one = terminals.new("one")
   set_title(one, "ignored")
   local rendered = eval_winbar(one, 20)
-  same(rendered.str, "  one " .. string.rep(" ", 14), "a string command should remain left aligned")
+  same(rendered.str, " one " .. string.rep(" ", 15), "a string command's padding should begin at cell 0")
   same(highlight_spans(rendered), {
-    { group = "TermBar", start = 0 },
-    { group = "TermBarNameFocused", start = 1 },
-    { group = "TermBar", start = 6 },
-  }, "a single entry should use the focused base highlight around its title")
+    { group = "TermBarNameFocused", start = 0 },
+    { group = "TermBar", start = 5 },
+  }, "a single entry should start with its focused padded title and end with the base fill")
 
   local two = terminals.new("two")
   set_title(two, "also ignored")
   rendered = eval_winbar(two, 20)
-  same(rendered.str, "  one   two " .. string.rep(" ", 8), "entries should retain creation order and exact spacing")
+  same(rendered.str, " one   two " .. string.rep(" ", 9), "entries should retain creation order and exact spacing")
   same(highlight_spans(rendered), {
-    { group = "TermBar", start = 0 },
-    { group = "TermBarName", start = 1 },
-    { group = "TermBar", start = 6 },
-    { group = "TermBarNameFocused", start = 7 },
-    { group = "TermBar", start = 12 },
-  }, "base, inactive, separator, focused, and trailing regions should be highlighted independently")
+    { group = "TermBarName", start = 0 },
+    { group = "TermBar", start = 5 },
+    { group = "TermBarNameFocused", start = 6 },
+    { group = "TermBar", start = 11 },
+  }, "inactive, separator, focused, and trailing regions should be highlighted independently")
 
   set_title(two, "changed")
   rendered = eval_winbar(two, 20)
-  same(rendered.str, "  one   two " .. string.rep(" ", 8), "buffer title changes should not affect command labels")
+  same(rendered.str, " one   two " .. string.rep(" ", 9), "buffer title changes should not affect command labels")
 
   vim.api.nvim_set_current_win(main_win)
   cd(directory("winbar-literal-command"))
@@ -1448,13 +1443,12 @@ test("renders command-derived winbar titles and ignores buffer titles", function
   rendered = eval_winbar(literal, 48)
   same(
     rendered.str,
-    "  100% %#Error# ready  " .. string.rep(" ", 25),
+    " 100% %#Error# ready  " .. string.rep(" ", 26),
     "command text should render literally with control characters sanitized"
   )
   same(highlight_spans(rendered), {
-    { group = "TermBar", start = 0 },
-    { group = "TermBarNameFocused", start = 1 },
-    { group = "TermBar", start = 23 },
+    { group = "TermBarNameFocused", start = 0 },
+    { group = "TermBar", start = 22 },
   }, "statusline metacharacters in a command should not change highlights")
 end)
 
@@ -1466,38 +1460,35 @@ test("renders failed exit statuses beside active and inactive titles", function(
 
   local failed = terminals.new("failed")
   local rendered = eval_winbar(failed, 24)
-  same(rendered.str, "  failed " .. string.rep(" ", 15), "a running terminal should have no status box")
+  same(rendered.str, " failed " .. string.rep(" ", 16), "a running terminal should have no status box")
   same(highlight_spans(rendered), {
-    { group = "TermBar", start = 0 },
-    { group = "TermBarNameFocused", start = 1 },
-    { group = "TermBar", start = 9 },
-  }, "a running terminal should use the focused base, title, and fill highlights")
+    { group = "TermBarNameFocused", start = 0 },
+    { group = "TermBar", start = 8 },
+  }, "a running terminal should use the focused padded title and base fill highlights")
 
   failed:exit(17)
   rendered = eval_winbar(failed, 24)
-  same(rendered.str, "  failed  17 " .. string.rep(" ", 11), "a failure should display its exact exit status")
+  same(rendered.str, " failed  17 " .. string.rep(" ", 12), "a failure should display its exact exit status")
   same(highlight_spans(rendered), {
-    { group = "TermBar", start = 0 },
-    { group = "TermBarNameFocused", start = 1 },
-    { group = "TermBarStatus", start = 9 },
-    { group = "TermBar", start = 13 },
-  }, "the status box should directly follow the focused title with padded status highlighting")
+    { group = "TermBarNameFocused", start = 0 },
+    { group = "TermBarStatus", start = 8 },
+    { group = "TermBar", start = 12 },
+  }, "the final status box should retain padding on both sides")
 
   local running = terminals.new("running")
   rendered = eval_winbar(running, 28)
   same(
     rendered.str,
-    "  failed  17   running " .. string.rep(" ", 5),
+    " failed  17   running " .. string.rep(" ", 6),
     "a failed status should remain visible when its title becomes inactive"
   )
   same(highlight_spans(rendered), {
-    { group = "TermBar", start = 0 },
-    { group = "TermBarName", start = 1 },
-    { group = "TermBarStatus", start = 9 },
-    { group = "TermBar", start = 13 },
-    { group = "TermBarNameFocused", start = 14 },
-    { group = "TermBar", start = 23 },
-  }, "the leading space, separator, and trailing fill should use the focused base highlight")
+    { group = "TermBarName", start = 0 },
+    { group = "TermBarStatus", start = 8 },
+    { group = "TermBar", start = 12 },
+    { group = "TermBarNameFocused", start = 13 },
+    { group = "TermBar", start = 22 },
+  }, "the separator and trailing fill should use the focused base highlight")
 end)
 
 test("issues INFO notifications for OSC 9 requests", function()
@@ -1604,7 +1595,7 @@ test("ignores malformed terminal requests and clears attention on direct entry",
   local rendered = eval_winbar(terminal, 24)
   same(
     rendered.str,
-    "  side  !   newer " .. string.rep(" ", 6),
+    " side  !   newer " .. string.rep(" ", 7),
     "the unread request should appear before direct entry"
   )
 
@@ -1613,7 +1604,7 @@ test("ignores malformed terminal requests and clears attention on direct entry",
   rendered = eval_winbar(terminal, 24)
   same(
     rendered.str,
-    "  side   newer " .. string.rep(" ", 9),
+    " side   newer " .. string.rep(" ", 10),
     "direct entry should remove attention and select the entered terminal"
   )
   same(terminals.next(), newer, "cycling should continue from the directly entered terminal")
@@ -1636,7 +1627,7 @@ test("tracks unread OSC 9 notifications in the winbar", function()
   local rendered = eval_winbar(focused, 40)
   same(
     rendered.str,
-    "  background   focused " .. string.rep(" ", 17),
+    " background   focused " .. string.rep(" ", 18),
     "focused notifications, OSC 9 progress, and unrelated requests should be ignored"
   )
   same(tab_attention(), false, "ignored notifications should leave the tabpage attention false")
@@ -1648,27 +1639,45 @@ test("tracks unread OSC 9 notifications in the winbar", function()
   rendered = eval_winbar(focused, 40)
   same(
     rendered.str,
-    "  background  17  !   focused " .. string.rep(" ", 10),
+    " background  17  !   focused " .. string.rep(" ", 11),
     "repeated background notifications should produce one padded attention box after the exit status"
   )
   same(highlight_spans(rendered), {
-    { group = "TermBar", start = 0 },
-    { group = "TermBarName", start = 1 },
-    { group = "TermBarStatus", start = 13 },
-    { group = "TermBarAttention", start = 17 },
-    { group = "TermBar", start = 20 },
-    { group = "TermBarNameFocused", start = 21 },
-    { group = "TermBar", start = 30 },
+    { group = "TermBarName", start = 0 },
+    { group = "TermBarStatus", start = 12 },
+    { group = "TermBarAttention", start = 16 },
+    { group = "TermBar", start = 19 },
+    { group = "TermBarNameFocused", start = 20 },
+    { group = "TermBar", start = 29 },
   }, "attention should compose with inactive titles, statuses, focused base regions, and the focused title")
 
   same(terminals.prev(), background, "focusing the notifying terminal should select it")
   rendered = eval_winbar(background, 40)
   same(
     rendered.str,
-    "  background  17   focused " .. string.rep(" ", 13),
+    " background  17   focused " .. string.rep(" ", 14),
     "focusing a terminal should clear its unread attention"
   )
   same(tab_attention(), false, "reading the last notification should clear the tabpage attention")
+
+  focused:request("\027]9;focused build finished")
+  same(tab_attention(), true, "an unread final terminal should mark the tabpage")
+  rendered = eval_winbar(background, 40)
+  same(
+    rendered.str,
+    " background  17   focused  ! " .. string.rep(" ", 11),
+    "a final attention marker should retain padding on both sides"
+  )
+  same(highlight_spans(rendered), {
+    { group = "TermBarNameFocused", start = 0 },
+    { group = "TermBarStatus", start = 12 },
+    { group = "TermBar", start = 16 },
+    { group = "TermBarName", start = 17 },
+    { group = "TermBarAttention", start = 26 },
+    { group = "TermBar", start = 29 },
+  }, "the base fill should begin after the final attention marker's padding")
+  same(terminals.next(), focused, "focusing the final attentive terminal should clear its marker")
+  same(tab_attention(), false, "reading the final notification should clear tabpage attention")
 end)
 
 test("aggregates tabpage attention across terminal positions", function()
@@ -1781,27 +1790,25 @@ test("renders argv and shell terminal winbar titles", function()
   local argv = terminals.new({ "printf", "%s", "hello world" })
   set_title(argv, "ignored")
   local rendered = eval_winbar(argv, 32)
-  same(rendered.str, "  printf %s hello world " .. string.rep(" ", 8), "argv should be joined with single spaces")
+  same(rendered.str, " printf %s hello world " .. string.rep(" ", 9), "argv should be joined with single spaces")
   same(highlight_spans(rendered), {
-    { group = "TermBar", start = 0 },
-    { group = "TermBarNameFocused", start = 1 },
-    { group = "TermBar", start = 24 },
-  }, "an argv title should retain leading, focused, and trailing highlights")
+    { group = "TermBarNameFocused", start = 0 },
+    { group = "TermBar", start = 23 },
+  }, "an argv title's padding should begin with its focused highlight and end at the fill")
 
   local shell = terminals.new()
   set_title(shell, "ignored")
   rendered = eval_winbar(shell, 44)
   same(
     rendered.str,
-    "  printf %s hello world   terminal " .. string.rep(" ", 9),
+    " printf %s hello world   terminal " .. string.rep(" ", 10),
     "a nil command should use the shell terminal placeholder"
   )
   same(highlight_spans(rendered), {
-    { group = "TermBar", start = 0 },
-    { group = "TermBarName", start = 1 },
-    { group = "TermBar", start = 24 },
-    { group = "TermBarNameFocused", start = 25 },
-    { group = "TermBar", start = 35 },
+    { group = "TermBarName", start = 0 },
+    { group = "TermBar", start = 23 },
+    { group = "TermBarNameFocused", start = 24 },
+    { group = "TermBar", start = 34 },
   }, "argv and shell terminal entries should preserve independent highlights")
 end)
 
@@ -1813,25 +1820,24 @@ test("uses persistent creation-time titles ahead of command titles", function()
   local named = terminals.new("named", { title = "Named" })
   set_title(named, "dynamic")
   local rendered = eval_winbar(named, 20)
-  same(rendered.str, "  Named " .. string.rep(" ", 12), "an explicit title should be displayed")
+  same(rendered.str, " Named " .. string.rep(" ", 13), "an explicit title should be displayed")
 
   set_title(named, "changed")
   rendered = eval_winbar(named, 20)
-  same(rendered.str, "  Named " .. string.rep(" ", 12), "an explicit title should remain authoritative")
+  same(rendered.str, " Named " .. string.rep(" ", 13), "an explicit title should remain authoritative")
 
   local literal = terminals.new("literal", { title = "100% %#Error#\nready\7" })
   rendered = eval_winbar(literal, 48)
   same(
     rendered.str,
-    "  Named   100% %#Error# ready  " .. string.rep(" ", 17),
+    " Named   100% %#Error# ready  " .. string.rep(" ", 18),
     "explicit titles should render literally with control characters sanitized"
   )
   same(highlight_spans(rendered), {
-    { group = "TermBar", start = 0 },
-    { group = "TermBarName", start = 1 },
-    { group = "TermBar", start = 8 },
-    { group = "TermBarNameFocused", start = 9 },
-    { group = "TermBar", start = 31 },
+    { group = "TermBarName", start = 0 },
+    { group = "TermBar", start = 7 },
+    { group = "TermBarNameFocused", start = 8 },
+    { group = "TermBar", start = 30 },
   }, "statusline metacharacters in an explicit title should not change highlights")
 
   vim.api.nvim_set_current_win(main_win)
@@ -1841,10 +1847,9 @@ test("uses persistent creation-time titles ahead of command titles", function()
   rendered = eval_winbar(empty, 8)
   same(rendered.str, string.rep(" ", 8), "an empty explicit title should not fall back to the command title")
   same(highlight_spans(rendered), {
-    { group = "TermBar", start = 0 },
-    { group = "TermBarNameFocused", start = 1 },
-    { group = "TermBar", start = 3 },
-  }, "an empty explicit title should retain its leading space and padded focused region")
+    { group = "TermBarNameFocused", start = 0 },
+    { group = "TermBar", start = 2 },
+  }, "an empty explicit title should retain two visible title-padding cells")
 end)
 
 test("updates winbar selection while preserving directory isolation", function()
@@ -1859,13 +1864,12 @@ test("updates winbar selection while preserving directory isolation", function()
   set_title(beta, "beta")
   same(terminals.prev(), alpha, "cycling should select the first winbar entry")
   local rendered = eval_winbar(alpha, 24)
-  same(rendered.str, "  alpha   beta " .. string.rep(" ", 9), "cycling should retain creation order")
+  same(rendered.str, " alpha   beta " .. string.rep(" ", 10), "cycling should retain creation order")
   same(highlight_spans(rendered), {
-    { group = "TermBar", start = 0 },
-    { group = "TermBarNameFocused", start = 1 },
-    { group = "TermBar", start = 8 },
-    { group = "TermBarName", start = 9 },
-    { group = "TermBar", start = 15 },
+    { group = "TermBarNameFocused", start = 0 },
+    { group = "TermBar", start = 7 },
+    { group = "TermBarName", start = 8 },
+    { group = "TermBar", start = 14 },
   }, "cycling should move the focused title while retaining focused base highlights")
 
   vim.api.nvim_set_current_win(main_win)
@@ -1873,13 +1877,13 @@ test("updates winbar selection while preserving directory isolation", function()
   local other = terminals.new("other")
   set_title(other, "other")
   rendered = eval_winbar(other, 24)
-  same(rendered.str, "  other " .. string.rep(" ", 16), "another directory should have an isolated winbar")
+  same(rendered.str, " other " .. string.rep(" ", 17), "another directory should have an isolated winbar")
 
   vim.api.nvim_set_current_win(main_win)
   cd(dir_a)
   same(terminals.toggle(), alpha, "the original directory selection should be restored")
   rendered = eval_winbar(alpha, 24)
-  same(rendered.str, "  alpha   beta " .. string.rep(" ", 9), "restoring a group should not mix directory titles")
+  same(rendered.str, " alpha   beta " .. string.rep(" ", 10), "restoring a group should not mix directory titles")
 end)
 
 test("removes closed, exited, and wiped terminals from the winbar", function()
@@ -1894,21 +1898,21 @@ test("removes closed, exited, and wiped terminals from the winbar", function()
   set_title(closed, "closed")
   same(terminals.close(), closed, "the newest terminal should close")
   local rendered = eval_winbar(first, 20)
-  same(rendered.str, "  first " .. string.rep(" ", 12), "a closed terminal should disappear from the winbar")
+  same(rendered.str, " first " .. string.rep(" ", 13), "a closed terminal should disappear from the winbar")
 
   local successful = terminals.new("successful")
   set_title(successful, "successful")
   successful:exit(0)
   eventually_invalid(successful, "the successful terminal should leave the winbar")
   rendered = eval_winbar(first, 20)
-  same(rendered.str, "  first " .. string.rep(" ", 12), "a successful exit should disappear from the winbar")
+  same(rendered.str, " first " .. string.rep(" ", 13), "a successful exit should disappear from the winbar")
 
   local wiped = terminals.new("wiped")
   set_title(wiped, "wiped")
   vim.api.nvim_buf_delete(wiped.buf, { force = true })
   eventually_current_is(first)
   rendered = eval_winbar(first, 20)
-  same(rendered.str, "  first " .. string.rep(" ", 12), "a wiped terminal should disappear from the winbar")
+  same(rendered.str, " first " .. string.rep(" ", 13), "a wiped terminal should disappear from the winbar")
 end)
 
 test("keeps same-cwd terminal lists, selections, and edge visibility independent per tab", function()
@@ -1929,7 +1933,7 @@ test("keeps same-cwd terminal lists, selections, and edge visibility independent
   truthy(first_two:win_valid(), "opening the same position in another tab should preserve the first edge window")
   same(vim.api.nvim_win_get_tabpage(first_two.win), first_tab, "the first edge should remain in its owner tab")
   same(vim.api.nvim_win_get_tabpage(second_two.win), second_tab, "the second edge should be created in its owner tab")
-  same(eval_winbar(second_two, 30).str, "  second-one   second-two " .. string.rep(" ", 4), "the second winbar should list only its owner-tab group")
+  same(eval_winbar(second_two, 30).str, " second-one   second-two " .. string.rep(" ", 5), "the second winbar should list only its owner-tab group")
 
   same(terminals.prev({ position = "left" }), second_one, "cycling in the second tab should use its own list")
   current_is(second_one)
@@ -1939,7 +1943,7 @@ test("keeps same-cwd terminal lists, selections, and edge visibility independent
   same(terminals.prev({ position = "left" }), first_one, "the first tab should retain its independent selection")
   current_is(first_one)
   truthy(second_one:win_valid(), "first-tab cycling should not hide the inactive tab's edge")
-  same(eval_winbar(first_one, 30).str, "  first-one   first-two " .. string.rep(" ", 6), "the first winbar should list only its owner-tab group")
+  same(eval_winbar(first_one, 30).str, " first-one   first-two " .. string.rep(" ", 7), "the first winbar should list only its owner-tab group")
 
   same(terminals.toggle({ position = "left" }), first_one, "toggle should hide only the current tab's selection")
   falsy(first_one:win_valid(), "the current tab's selected edge should be hidden")

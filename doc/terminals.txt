@@ -294,16 +294,17 @@ quoting, and a terminal created without a command is labeled `terminal`. The
 selected title uses TermBarNameFocused when its managed terminal window and
 buffer are current, and TermBarNameActive otherwise, including when an edge
 terminal remains visible after focus moves to an editor window. Other titles
-use TermBarName. Titles remain in creation order, and each has one highlighted
-padding space on both sides. A retained terminal that exits with a non-zero
-status appends its numeric code directly after its title, with one padding
-space on both sides highlighted by TermBarStatus. A dedicated one-cell space
-precedes the first title's padding. This leading space, the separator space
-between terminal entries, and the trailing winbar fill use the bar's base
-highlight: TermBar when the rendered managed terminal window and buffer are
-current, and TermBarNC otherwise. Thus, a visible edge terminal switches its
-non-item regions to TermBarNC after focus moves to an editor while its selected
-entry remains TermBarNameActive.
+use TermBarName. Titles remain in creation order. Title, exit-status, and
+attention items each have one highlighted padding space on both sides. The
+first title's padding begins at cell 0, with no dedicated base-highlight space
+before it. A retained terminal that exits with a non-zero status appends its
+numeric code after its title, highlighted by TermBarStatus. The one-cell
+base-highlight separator before each later terminal entry remains, so all
+spacing between items is preserved. These separators and the trailing
+full-width winbar fill use TermBar when the rendered managed terminal window
+and buffer are current, and TermBarNC otherwise. Thus, a visible edge terminal
+switches its non-item regions to TermBarNC after focus moves to an editor while
+its selected entry remains TermBarNameActive.
 TermBar, TermBarNC, TermBarName, TermBarNameActive, TermBarNameFocused,
 TermBarStatus, and TermBarAttention are user-defined highlight groups consumed
 without being defined or overridden. NormalFloat is also
@@ -320,8 +321,8 @@ terminals. An absent or empty resulting body becomes "a terminal needs
 attention", including when a valid title was provided.
 
 When emitted by an unfocused managed terminal, the notification also appends a
-padded ! box after that terminal's exit-status box, highlighted by
-TermBarAttention. Repeated notifications retain one mark, and focusing the
+padded ! box after that terminal's title and any exit-status box, highlighted
+by TermBarAttention. Repeated notifications retain one mark. Focusing the
 terminal clears it. Notifications emitted while the terminal is focused do not
 set attention. OSC 9;4 progress sequences and unrelated terminal requests do
 not issue notifications or set attention.

@@ -722,7 +722,7 @@ function M._winbar()
 
   local base_highlight = entry_focused(target) and "TermBar" or "TermBarNC"
   local base = "%#" .. base_highlight .. "#"
-  local parts = { base .. " " }
+  local parts = {}
   for index, entry in ipairs(group.terminals) do
     local title = escape_winbar_title(winbar_title(entry))
     if index > 1 then
