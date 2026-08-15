@@ -1257,6 +1257,133 @@ test("uses a focused overridden group for cycling and toggling", function()
   current_is(editor_terminal)
 end)
 
+test("groups a cross-cwd terminal with the current carousel", function()
+  local group_dir = directory("cwd-current-group")
+  local process_dir = directory("cwd-current-group-process")
+  cd(group_dir)
+  terminals.setup()
+
+  local original = terminals.new("group", { position = "top" })
+  local grouped = terminals.new("cross", {
+    cwd = "../cwd-current-group-process",
+    group = true,
+    position = "top",
+  })
+
+  same(grouped.opts.cwd, process_dir, "a grouped terminal should forward its process cwd to Snacks")
+  same(rawget(grouped.opts.win, "enter"), nil, "a grouped cross-cwd terminal should use foreground window options")
+  falsy(original:win_valid(), "a grouped cross-cwd terminal should replace the visible terminal at its position")
+  current_is(grouped)
+  same(
+    eval_winbar(grouped, 24).str,
+    "  group   cross " .. string.rep(" ", 8),
+    "mixed-cwd terminals should share one creation-ordered winbar"
+  )
+
+  same(terminals.prev(), original, "previous should cycle to the same-group terminal with another process cwd")
+  same(terminals.next(), grouped, "next should cycle back to the grouped cross-cwd terminal")
+  same(terminals.toggle({ position = "top" }), grouped, "toggle should hide the grouped cross-cwd selection")
+  falsy(grouped:win_valid(), "the grouped terminal should be hidden by toggle")
+  same(terminals.toggle({ position = "top" }), grouped, "toggle should restore the grouped cross-cwd selection")
+  current_is(grouped)
+
+  local plain = terminals.new("plain")
+  same(plain.opts.cwd, group_dir, "plain new() should use the focused terminal's group directory")
+  current_is(plain)
+  same(
+    eval_winbar(plain, 32).str,
+    "  group   cross   plain " .. string.rep(" ", 8),
+    "plain new() should remain in the mixed-cwd carousel"
+  )
+
+  same(terminals.close(), plain, "closing the newest terminal should return it")
+  current_is(grouped)
+  same(terminals.close(), grouped, "the mixed-cwd predecessor should remain closable")
+  current_is(original)
+end)
+
+test("formats TermSend paths from a grouped terminal's process cwd", function()
+  local group_dir = directory("cwd-current-group-send")
+  local process_dir = directory("cwd-current-group-send-process")
+  cd(group_dir)
+  terminals.setup()
+
+  terminals.new("base", { position = "right" })
+  local grouped = terminals.new("target", {
+    cwd = process_dir,
+    group = true,
+    position = "right",
+  })
+  local buf = source_buffer(process_dir, "actual.lua", { "selected" })
+
+  with_channel_mocks({ [grouped.buf] = 350 }, function(sent)
+    select_visual(buf, "V", 1, 1, 1, 1)
+    same(terminals.send({ position = "right" }), grouped, "TermSend should focus the visible grouped terminal")
+    same(sent, {
+      { channel = 350, data = "actual.lua:1" },
+    }, "TermSend should make the path relative to the terminal's actual process cwd")
+  end)
+end)
+
+test("matches grouped terminal attention against the group directory", function()
+  local group_dir = directory("cwd-current-group-attention")
+  local process_dir = directory("cwd-current-group-attention-process")
+  cd(group_dir)
+  terminals.setup()
+
+  local base = terminals.new("base", { position = "bottom" })
+  local grouped = terminals.new("grouped", {
+    cwd = process_dir,
+    group = true,
+    position = "bottom",
+  })
+  same(terminals.prev(), base, "the base terminal should be focused before the grouped notification")
+
+  grouped:request("\027]9;grouped build finished")
+  same(tab_attention(), true, "grouped attention should match the current group directory")
+
+  vim.api.nvim_set_current_win(main_win)
+  cd(process_dir)
+  same(tab_attention(), false, "the grouped terminal's process cwd should not match tab attention")
+  cd(group_dir)
+  same(tab_attention(), true, "returning to the group directory should restore its unread attention")
+
+  same(terminals.next({ position = "bottom" }), grouped, "the grouped notifying terminal should remain selectable")
+  same(tab_attention(), false, "focusing the grouped terminal should clear its attention")
+end)
+
+test("keeps omitted and false group options cwd-isolated", function()
+  local group_dir = directory("cwd-group-disabled")
+  local process_dir = directory("cwd-group-disabled-process")
+  cd(group_dir)
+  terminals.setup()
+
+  local base = terminals.new("base", { position = "left" })
+  local omitted = terminals.new("omitted", { cwd = process_dir, position = "left" })
+  local disabled = terminals.new("disabled", {
+    cwd = process_dir,
+    group = false,
+    position = "left",
+  })
+
+  falsy(omitted:win_valid(), "an omitted group option should retain background cross-cwd creation")
+  falsy(disabled:win_valid(), "group=false should retain background cross-cwd creation")
+  same(omitted.opts.win.enter, false, "an omitted group option should use background window options")
+  same(disabled.opts.win.enter, false, "group=false should use background window options")
+  truthy(base:win_valid(), "isolated cross-cwd creation should preserve the visible base terminal")
+  same(eval_winbar(base, 20).str, "  base " .. string.rep(" ", 13), "the base winbar should remain cwd-isolated")
+  same(terminals.prev(), base, "the base carousel should exclude isolated cross-cwd terminals")
+
+  vim.api.nvim_set_current_win(main_win)
+  cd(process_dir)
+  same(terminals.toggle({ position = "left" }), disabled, "the process-cwd group should retain its active selection")
+  same(
+    eval_winbar(disabled, 32).str,
+    "  omitted   disabled " .. string.rep(" ", 11),
+    "omitted and false options should share only their process-cwd carousel"
+  )
+end)
+
 test("returns an empty winbar for missing, unmanaged, and stale windows", function()
   cd(directory("winbar-invalid-windows"))
   terminals.setup()

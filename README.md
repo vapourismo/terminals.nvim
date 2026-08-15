@@ -7,13 +7,15 @@ It keeps terminals ordered by creation time and remembers the selected
 terminal independently in each tabpage.
 
 Every terminal belongs permanently to the tabpage where it was created.
-Terminals are grouped by owner tabpage, the absolute working directory used to
-spawn them, and their window position. Each `(tabpage, cwd, position)` group
-has its own creation order and selected terminal. Directories are normalized
+Terminals are grouped by owner tabpage, a normalized **group directory**, and
+their window position. Each `(tabpage, group directory, position)` group has
+its own creation order and selected terminal. The group directory normally
+matches the terminal process's working directory, but `new()` can keep the
+current group while spawning a process elsewhere. Directories are normalized
 without resolving symbolic links. Outside a managed terminal, the default
 scope uses Neovim's working directory returned by `getcwd()` and the configured
-position; inside one, actions inherit the focused terminal's directory and
-position.
+position; inside one, actions inherit the focused terminal's group directory
+and position.
 
 ## Requirements
 
@@ -86,10 +88,10 @@ installed.
 
 | Command | Lua | Behavior |
 | --- | --- | --- |
-| `:TermNew [command...]` | `require("terminals").new(cmd?, opts?)` | Create and select a terminal. Lua focuses it when its resolved directory matches the applicable directory; otherwise it starts hidden. |
+| `:TermNew [command...]` | `require("terminals").new(cmd?, opts?)` | Create and select a terminal. Lua focuses it when its target group directory is the applicable group; otherwise it starts hidden. |
 | `:TermClose` | `.close()` | Destroy the focused managed terminal; do nothing outside one. |
-| `:TermPrev` | `.prev(opts?)` | Circularly select the previous terminal for the current tab's applicable `(cwd, position)` group. |
-| `:TermNext` | `.next(opts?)` | Circularly select the next terminal for the current tab's applicable `(cwd, position)` group. |
+| `:TermPrev` | `.prev(opts?)` | Circularly select the previous terminal for the current tab's applicable `(group directory, position)` group. |
+| `:TermNext` | `.next(opts?)` | Circularly select the next terminal for the current tab's applicable `(group directory, position)` group. |
 | `:TermToggle` | `.toggle(opts?)` | Hide/show the current tab's selected terminal for the applicable group, creating a shell terminal if it is empty. |
 | `:'<,'>TermSend [position]` | `.send(opts?)` | Focus a current-tab managed terminal and insert the Visual selection's file location without submitting it. |
 
@@ -104,12 +106,13 @@ changes, focuses the resolved target, and inserts the location through the
 terminal buffer's channel. It sends no newline, so the reference remains in the
 terminal input for editing.
 
-The Lua API accepts a persistent winbar title, working directory, position, and
-per-creation process environment:
+The Lua API accepts a persistent winbar title, process working directory,
+current-group override, position, and per-creation process environment:
 
 ```lua
 require("terminals").new("npm test", {
   cwd = "../app",
+  group = true,
   position = "right",
   title = "Tests",
   env = { NODE_ENV = "test" },
@@ -118,10 +121,17 @@ require("terminals").new("npm test", {
 
 `opts.cwd` may be absolute or relative. Absolute paths are normalized without
 resolving symbolic links. A relative path is resolved against the focused
-managed terminal's group, or against Neovim's `getcwd()` when invoked outside a
-managed terminal. With no `opts.cwd`, `new()` uses that same base directory.
-The resolved absolute path is passed to Snacks as the process `cwd` and owns the
-terminal's directory scope.
+managed terminal's group directory, or against Neovim's `getcwd()` when invoked
+outside a managed terminal. With no `opts.cwd`, `new()` uses that same base
+directory. The resolved absolute path is always passed to Snacks as the
+process `cwd`.
+
+`opts.group` is a Lua-only boolean. When it is `nil` or `false`, the normalized
+process `cwd` is also the new terminal's group directory, preserving the
+default cwd-based isolation. When it is `true`, the terminal retains the
+applicable current group directory even if its process `cwd` differs. It then
+joins that current tabpage and position group's creation order, winbar, active
+selection, cycling, toggling, fallback, and attention scope.
 
 `opts.env` is an optional string-to-string table passed to Snacks for the
 spawned process. It applies only to that terminal creation. When omitted, it
@@ -129,23 +139,29 @@ remains `nil`, preserving the usual Snacks/Neovim environment inheritance.
 
 `opts.position` may select any supported position for that terminal. When it is
 omitted, `new()` inherits the focused managed terminal's position, or uses
-`setup().position` outside a managed terminal. The resolved creation
-position is retained even if `setup()` changes later. Equivalent normalized
-paths share creation order and active selection only when their owner tabpages
-and positions also match. Tabs never adopt or reuse one another's terminal
-objects. `:TermNew` retains its existing command-only syntax; use the Lua API
-for custom directories, positions, or environments.
+`setup().position` outside a managed terminal. The resolved creation position
+is retained even if `setup()` changes later. Equivalent normalized group
+directories share creation order and active selection only when their owner
+tabpages and positions also match. Tabs never adopt or reuse one another's
+terminal objects. `:TermNew` retains its existing command-only syntax; use the
+Lua API for custom directories, grouping, positions, or environments.
 
-When the resolved path matches the captured base directory, `new()` replaces a
-visible terminal only at the target position in the current tab and focuses the
-new terminal. An explicit different position is therefore opened in the
-foreground while edge terminals at other positions and in other tabs remain
-visible. When the path differs, the process starts in the background as its
-current-tab target group's active selection; the current window and visible
-terminals remain in place. Toggling from the target directory in that owner tab
-later reveals the same terminal. Because `:TermNew` and the default new-terminal
-mapping set neither directory nor position, they inherit both from a focused
-managed terminal and remain foreground operations.
+When the target group directory matches the captured applicable group,
+`new()` replaces a visible terminal only at the target position in the current
+tab and focuses the new terminal. Thus `group = true` opens a cross-cwd process
+in the foreground and makes it the active entry in the current group. An
+explicit different position also opens in the foreground while edge terminals
+at other positions and in other tabs remain visible. With `group` omitted or
+false, an explicit cwd that differs from the applicable group starts in the
+background as its process-cwd group's active selection; the current window and
+visible terminals remain in place. Toggling from that target directory in the owner tab
+later reveals the same terminal.
+
+Because `:TermNew` and the default new-terminal mapping pass no options, they
+use the applicable group directory as both process cwd and group directory and
+remain foreground operations. In particular, calling plain `new()` or `<D-n>`
+from a `group = true` cross-cwd terminal uses its group directory rather than
+inheriting its exceptional process cwd.
 
 `prev()`, `next()`, and `toggle()` accept an optional position target:
 
@@ -155,9 +171,10 @@ require("terminals").next({ position = "right" })
 ```
 
 With no target, these functions use the focused managed terminal's position or
-the configured default outside one. Their directory is always the focused
-managed terminal's directory or Neovim's current directory outside one. The
-argument-free commands use this same implicit resolution.
+the configured default outside one. Their group directory is always the
+focused managed terminal's stored group directory or Neovim's current
+directory outside one. The argument-free commands use this same implicit
+resolution.
 
 `send()` accepts the same optional position shape:
 
@@ -167,16 +184,17 @@ require("terminals").send({ position = "right" })
 
 Call the Lua API while a characterwise or linewise Visual selection is active.
 With no position, it considers every managed terminal in the current tab that
-currently has a valid window, regardless of cwd or focus. Exactly one visible
-terminal is used; zero candidates report an error without creating a terminal,
-and multiple candidates require an explicit position. With a position, an
-already visible terminal there in the current tab wins even when it belongs to
-another cwd. Otherwise `send()` restores the active terminal from the current
-tab's applicable `(cwd, position)` group, or creates a shell terminal there
-when that group is empty. Visible terminals in other tabs are ignored.
+currently has a valid window, regardless of group directory, process cwd, or
+focus. Exactly one visible terminal is used; zero candidates report an error
+without creating a terminal, and multiple candidates require an explicit
+position. With a position, an already visible terminal there in the current
+tab wins even when it belongs to another group. Otherwise `send()` restores
+the active terminal from the current tab's applicable
+`(group directory, position)` group, or creates a shell terminal there when
+that group is empty. Visible terminals in other tabs are ignored.
 
-The location is relative to the selected terminal's cwd and uses 1-based byte
-columns with inclusive endpoints:
+The location is relative to the selected terminal's actual process cwd, not
+its group directory, and uses 1-based byte columns with inclusive endpoints:
 
 ```text
 path:line
@@ -185,8 +203,8 @@ path:start_line:start_col-end_line:end_col
 ```
 
 A characterwise selection that covers complete lines uses the shorter line
-form. Reversed selections are normalized. A path outside the terminal cwd may
-start with `../`.
+form. Reversed selections are normalized. A path outside the terminal's
+process cwd may start with `../`.
 
 The Lua functions return the selected Snacks terminal object. `close()`,
 `prev()`, and `next()` return `nil` when there is no applicable managed
@@ -201,7 +219,7 @@ open. Leaving a managed float hides its window while preserving its buffer and
 process. This includes switching tabs from a focused float; returning to the
 owner tab and toggling restores that tab's persistent object. Edge-positioned
 terminals remain visible across focus and tab changes. Wiping a terminal buffer
-removes it from its exact `(tabpage, cwd, position)` group.
+removes it from its exact `(tabpage, group directory, position)` group.
 
 Closing a tabpage intentionally destroys all terminals it owns, including
 hidden, running, failed, or otherwise retained terminals. Their jobs are
@@ -209,8 +227,8 @@ terminated and buffers wiped without expected-termination notifications;
 terminals owned by other tabs are unaffected.
 
 Every managed terminal has a left-aligned winbar listing only its exact owner
-tab, cwd, and position group's terminals in creation order. A non-`nil`
-`opts.title`, including an empty string, is authoritative for the terminal's
+tab, group directory, and position group's terminals in creation order. A
+non-`nil` `opts.title`, including an empty string, is authoritative for the terminal's
 lifetime. Otherwise, the winbar
 uses the terminal's creation command: shell strings are displayed directly,
 argv lists are joined with single spaces without shell quoting, and a terminal
@@ -251,8 +269,8 @@ do not issue notifications or set attention.
 
 The plugin also owns the boolean tabpage variable `t:attention` for custom
 tablines. It is `true` when at least one valid terminal owned by that tabpage
-has unread attention and its cwd matches the tabpage's normalized working
-directory, across all terminal positions. It is `false` otherwise.
+has unread attention and its group directory matches the tabpage's normalized
+working directory, across all terminal positions. It is `false` otherwise.
 Tabpage-local `:tcd` directories take precedence over the global directory;
 window-local `:lcd` directories are ignored. Tabs that share a directory still
 have independent attention state.
@@ -266,15 +284,15 @@ Terminal mode keeps it in Normal mode. A successful exit closes the terminal.
 ends a focused managed shell successfully it triggers the same adjacent-terminal
 handoff. When a focused terminal is closed, exits successfully (including via
 `Ctrl+D`), or is wiped, its immediate predecessor in the same owner tab's
-`(cwd, position)` group is focused. If it has no predecessor, the immediate
-successor from that exact group is focused instead. When a visible but
-unfocused edge terminal exits successfully, the same adjacent fallback
+`(group directory, position)` group is focused. If it has no predecessor, the
+immediate successor from that exact group is focused instead. When a visible
+but unfocused edge terminal exits successfully, the same adjacent fallback
 replaces it in its owner tab while the previously focused editor or other
 window keeps focus. This also works when the owner tab is inactive, without
 switching tabs or stealing focus. A hidden
 terminal that exits successfully is removed without showing a fallback or
-changing focus. A fallback is never selected from another tab, directory, or
-position. Removing the group's only terminal closes that position and leaves
+changing focus. A fallback is never selected from another tab, group directory,
+or position. Removing the group's only terminal closes that position and leaves
 focus in Neovim's remaining window without creating a replacement.
 
 `TermSend` and `send()` reject blockwise selections, missing or stale Visual

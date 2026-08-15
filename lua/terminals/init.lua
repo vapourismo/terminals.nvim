@@ -6,6 +6,7 @@ local M = {}
 ---@class terminals.NewOptions
 ---@field title? string
 ---@field cwd? string
+---@field group? boolean
 ---@field position? string
 ---@field env? table<string, string>
 
@@ -18,6 +19,7 @@ local M = {}
 
 ---@class terminals.Entry
 ---@field owner integer
+---@field group_cwd string
 ---@field cwd string
 ---@field position string
 ---@field cmd? string|string[]
@@ -60,37 +62,38 @@ local registry = {}
 local side_widths = {}
 
 ---@param owner integer
----@param cwd string
+---@param group_cwd string
 ---@param position string
 ---@return terminals.Group?
-local function group_for(owner, cwd, position)
+local function group_for(owner, group_cwd, position)
   local tab_registry = registry[owner]
   local position_groups = tab_registry and tab_registry[position]
-  return position_groups and position_groups[cwd]
+  return position_groups and position_groups[group_cwd]
 end
 
 ---@param owner integer
----@param cwd string
+---@param group_cwd string
 ---@param position string
 ---@return terminals.Group
-local function ensure_group(owner, cwd, position)
+local function ensure_group(owner, group_cwd, position)
   registry[owner] = registry[owner] or {}
   registry[owner][position] = registry[owner][position] or {}
-  registry[owner][position][cwd] = registry[owner][position][cwd] or { terminals = {}, active = 1 }
-  return registry[owner][position][cwd]
+  registry[owner][position][group_cwd] = registry[owner][position][group_cwd]
+    or { terminals = {}, active = 1 }
+  return registry[owner][position][group_cwd]
 end
 
 ---@param owner integer
----@param cwd string
+---@param group_cwd string
 ---@param position string
-local function delete_group(owner, cwd, position)
+local function delete_group(owner, group_cwd, position)
   local tab_registry = registry[owner]
   local position_groups = tab_registry and tab_registry[position]
   if not position_groups then
     return
   end
 
-  position_groups[cwd] = nil
+  position_groups[group_cwd] = nil
   if next(position_groups) == nil then
     tab_registry[position] = nil
     if side_widths[owner] then
@@ -236,7 +239,7 @@ local function synchronize_tab_attention()
     local attention = false
     for _, entry in ipairs(registry_entries(tabpage)) do
       if
-        entry.cwd == effective_cwd
+        entry.group_cwd == effective_cwd
         and entry.attention
         and not entry.removed
         and buf_valid(entry.terminal)
@@ -312,11 +315,11 @@ local function enforce_side_window(owner, position, terminal)
 end
 
 ---@param owner integer
----@param cwd string
+---@param group_cwd string
 ---@param position string
 ---@return terminals.Group?
-local function prune(owner, cwd, position)
-  local group = group_for(owner, cwd, position)
+local function prune(owner, group_cwd, position)
+  local group = group_for(owner, group_cwd, position)
   if not group then
     return nil
   end
@@ -342,7 +345,7 @@ local function prune(owner, cwd, position)
   end
 
   if #terminals == 0 then
-    delete_group(owner, cwd, position)
+    delete_group(owner, group_cwd, position)
     return nil
   end
 
@@ -357,8 +360,8 @@ local function prune_all(owner)
   for _, tabpage in ipairs(owners) do
     local tab_registry = registry[tabpage]
     for _, position in ipairs(vim.tbl_keys(tab_registry or {})) do
-      for _, cwd in ipairs(vim.tbl_keys(tab_registry[position])) do
-        prune(tabpage, cwd, position)
+      for _, group_cwd in ipairs(vim.tbl_keys(tab_registry[position])) do
+        prune(tabpage, group_cwd, position)
       end
     end
   end
@@ -388,7 +391,7 @@ local function remove_entry(entry, select_fallback)
     redraw_attention()
   end
 
-  local group = group_for(entry.owner, entry.cwd, entry.position)
+  local group = group_for(entry.owner, entry.group_cwd, entry.position)
   if not group then
     return nil
   end
@@ -402,7 +405,7 @@ local function remove_entry(entry, select_fallback)
   table.remove(group.terminals, removed_index)
 
   if #group.terminals == 0 then
-    delete_group(entry.owner, entry.cwd, entry.position)
+    delete_group(entry.owner, entry.group_cwd, entry.position)
   elseif select_fallback or removed_index == group.active then
     group.active = removed_index > 1 and removed_index - 1 or 1
   elseif removed_index < group.active then
@@ -477,7 +480,7 @@ end
 
 ---@param entry terminals.Entry
 local function select_entry(entry)
-  local group = group_for(entry.owner, entry.cwd, entry.position)
+  local group = group_for(entry.owner, entry.group_cwd, entry.position)
   local index = group and entry_index(group.terminals, entry)
   if index then
     group.active = index
@@ -537,8 +540,8 @@ end
 local function applicable_scope(position)
   local owner = vim.api.nvim_get_current_tabpage()
   local entry = focused_entry()
-  local cwd = entry and entry.cwd or normalize_path(vim.fn.getcwd())
-  return owner, cwd, position or (entry and entry.position) or configured_position, entry
+  local group_cwd = entry and entry.group_cwd or normalize_path(vim.fn.getcwd())
+  return owner, group_cwd, position or (entry and entry.position) or configured_position, entry
 end
 
 ---@param cwd? string
@@ -712,7 +715,7 @@ end
 function M._winbar()
   local win = tonumber(vim.g.statusline_winid) or 0
   local target = entry_for_win(win)
-  local group = target and prune(target.owner, target.cwd, target.position)
+  local group = target and prune(target.owner, target.group_cwd, target.position)
   if not group then
     return "%#NormalFloat#%="
   end
@@ -1222,7 +1225,7 @@ function M.setup(opts)
   configured_position = opts and opts.position or default_position
 end
 
----Create a terminal for its effective directory, focusing it when that directory is applicable.
+---Create a terminal, focusing it when its target group directory is applicable.
 ---@param cmd? string|string[]
 ---@param opts? terminals.NewOptions
 ---@return snacks.terminal
@@ -1230,7 +1233,8 @@ function M.new(cmd, opts)
   opts = opts or {}
   local owner, base, position, previous = applicable_scope(opts.position)
   local cwd = resolve_cwd(opts.cwd, base)
-  local foreground = cwd == base
+  local group_cwd = opts.group and base or cwd
+  local foreground = group_cwd == base
   next_count = next_count + 1
 
   local terminal
@@ -1253,9 +1257,10 @@ function M.new(cmd, opts)
   end)
   assert(terminal, "Snacks.terminal.open() did not return a terminal")
 
-  local group = ensure_group(owner, cwd, position)
+  local group = ensure_group(owner, group_cwd, position)
   local entry = {
     owner = owner,
+    group_cwd = group_cwd,
     cwd = cwd,
     position = position,
     cmd = cmd,
@@ -1314,8 +1319,8 @@ end
 ---@param opts? terminals.ScopeOptions
 ---@return snacks.terminal?
 local function cycle(offset, opts)
-  local owner, cwd, position = applicable_scope(opts and opts.position)
-  local group = prune(owner, cwd, position)
+  local owner, group_cwd, position = applicable_scope(opts and opts.position)
+  local group = prune(owner, group_cwd, position)
   if not group then
     return nil
   end
@@ -1324,26 +1329,26 @@ local function cycle(offset, opts)
   return focus(group.terminals[group.active])
 end
 
----Select and focus the previous terminal for the applicable directory and position group.
+---Select and focus the previous terminal for the applicable group directory and position.
 ---@param opts? terminals.ScopeOptions
 ---@return snacks.terminal?
 function M.prev(opts)
   return cycle(-1, opts)
 end
 
----Select and focus the next terminal for the applicable directory and position group.
+---Select and focus the next terminal for the applicable group directory and position.
 ---@param opts? terminals.ScopeOptions
 ---@return snacks.terminal?
 function M.next(opts)
   return cycle(1, opts)
 end
 
----Hide or show the selected terminal for the applicable directory and position group.
+---Hide or show the selected terminal for the applicable group directory and position.
 ---@param opts? terminals.ScopeOptions
 ---@return snacks.terminal
 function M.toggle(opts)
-  local owner, cwd, position = applicable_scope(opts and opts.position)
-  local group = prune(owner, cwd, position)
+  local owner, group_cwd, position = applicable_scope(opts and opts.position)
+  local group = prune(owner, group_cwd, position)
   if not group then
     return M.new(nil, { position = position })
   end
@@ -1384,10 +1389,10 @@ function M.send(opts)
     if entry then
       target_cwd = entry.cwd
     else
-      local _, cwd, resolved_position = applicable_scope(position)
-      local group = prune(owner, cwd, resolved_position)
+      local _, group_cwd, resolved_position = applicable_scope(position)
+      local group = prune(owner, group_cwd, resolved_position)
       entry = group and group.terminals[group.active]
-      target_cwd = entry and entry.cwd or cwd
+      target_cwd = entry and entry.cwd or group_cwd
     end
   else
     local open = visible_entries(owner)
