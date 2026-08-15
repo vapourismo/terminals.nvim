@@ -404,7 +404,7 @@ test("makes a visible TermSend target the active terminal", function()
   terminals.setup()
 
   define_name_highlights()
-  vim.api.nvim_set_hl(0, "TermBarGapFocused", { bg = "#333333" })
+  vim.api.nvim_set_hl(0, "TermBar", { bg = "#333333" })
   local visible = terminals.new("visible", { position = "top" })
   vim.api.nvim_set_current_win(main_win)
   cd(source_dir)
@@ -425,12 +425,12 @@ test("makes a visible TermSend target the active terminal", function()
   local rendered = eval_winbar(visible, 28)
   same(rendered.str, "  visible   background " .. string.rep(" ", 5), "the focused send target should be selected")
   same(highlight_spans(rendered), {
-    { group = "TermBarGapFocused", start = 0 },
+    { group = "TermBar", start = 0 },
     { group = "TermBarNameFocused", start = 1 },
-    { group = "TermBarGapFocused", start = 10 },
+    { group = "TermBar", start = 10 },
     { group = "TermBarName", start = 11 },
-    { group = "TermBarGapFocused", start = 23 },
-  }, "TermSend should move the focused winbar and gap highlights to its visible target")
+    { group = "TermBar", start = 23 },
+  }, "TermSend should move the focused winbar and base highlights to its visible target")
   same(terminals.next(), background, "cycling should continue from the visible send target")
   current_is(background)
   background:hide()
@@ -1067,8 +1067,8 @@ test("keeps edge terminals visible on WinLeave while floats auto-hide", function
   cd(directory("position-winleave"))
   terminals.setup()
   define_name_highlights()
-  vim.api.nvim_set_hl(0, "TermBarGap", { bg = "#111111" })
-  vim.api.nvim_set_hl(0, "TermBarGapFocused", { bg = "#333333" })
+  vim.api.nvim_set_hl(0, "TermBarNC", { bg = "#111111" })
+  vim.api.nvim_set_hl(0, "TermBar", { bg = "#333333" })
 
   local previous = terminals.new("previous", { position = "left" })
   local edge = terminals.new("edge", { position = "left" })
@@ -1076,12 +1076,12 @@ test("keeps edge terminals visible on WinLeave while floats auto-hide", function
   local edge_hide_count = edge.hide_count
   local rendered = eval_winbar(edge, 24)
   same(highlight_spans(rendered), {
-    { group = "TermBarGapFocused", start = 0 },
+    { group = "TermBar", start = 0 },
     { group = "TermBarName", start = 1 },
-    { group = "TermBarGapFocused", start = 11 },
+    { group = "TermBar", start = 11 },
     { group = "TermBarNameFocused", start = 12 },
-    { group = "TermBarGapFocused", start = 18 },
-  }, "the selected edge title and gaps should use focused highlights while its window has focus")
+    { group = "TermBar", start = 18 },
+  }, "a focused edge should use TermBar for every non-item region")
 
   vim.api.nvim_set_current_win(main_win)
   vim.wait(20, function()
@@ -1091,12 +1091,12 @@ test("keeps edge terminals visible on WinLeave while floats auto-hide", function
   same(edge.hide_count, edge_hide_count, "WinLeave should not hide an edge terminal")
   rendered = eval_winbar(edge, 24)
   same(highlight_spans(rendered), {
-    { group = "TermBarGap", start = 0 },
+    { group = "TermBarNC", start = 0 },
     { group = "TermBarName", start = 1 },
-    { group = "TermBarGap", start = 11 },
+    { group = "TermBarNC", start = 11 },
     { group = "TermBarNameActive", start = 12 },
-    { group = "TermBarGap", start = 18 },
-  }, "an unfocused visible edge should keep its active selection and use unfocused gaps")
+    { group = "TermBarNC", start = 18 },
+  }, "an unfocused visible edge should keep its active selection and use TermBarNC")
 
   local float = terminals.new("float", { position = "float" })
   truthy(edge:win_valid(), "opening a float should not replace an edge terminal")
@@ -1421,22 +1421,22 @@ test("renders command-derived winbar titles and ignores buffer titles", function
   local rendered = eval_winbar(one, 20)
   same(rendered.str, "  one " .. string.rep(" ", 14), "a string command should remain left aligned")
   same(highlight_spans(rendered), {
-    { group = "TermBarGapFocused", start = 0 },
+    { group = "TermBar", start = 0 },
     { group = "TermBarNameFocused", start = 1 },
-    { group = "TermBarGapFocused", start = 6 },
-  }, "a single entry, leading gap, and trailing fill should use the requested highlights")
+    { group = "TermBar", start = 6 },
+  }, "a single entry should use the focused base highlight around its title")
 
   local two = terminals.new("two")
   set_title(two, "also ignored")
   rendered = eval_winbar(two, 20)
   same(rendered.str, "  one   two " .. string.rep(" ", 8), "entries should retain creation order and exact spacing")
   same(highlight_spans(rendered), {
-    { group = "TermBarGapFocused", start = 0 },
+    { group = "TermBar", start = 0 },
     { group = "TermBarName", start = 1 },
-    { group = "TermBarGapFocused", start = 6 },
+    { group = "TermBar", start = 6 },
     { group = "TermBarNameFocused", start = 7 },
-    { group = "TermBarGapFocused", start = 12 },
-  }, "leading, inactive, separator, focused, and trailing regions should be highlighted independently")
+    { group = "TermBar", start = 12 },
+  }, "base, inactive, separator, focused, and trailing regions should be highlighted independently")
 
   set_title(two, "changed")
   rendered = eval_winbar(two, 20)
@@ -1452,9 +1452,9 @@ test("renders command-derived winbar titles and ignores buffer titles", function
     "command text should render literally with control characters sanitized"
   )
   same(highlight_spans(rendered), {
-    { group = "TermBarGapFocused", start = 0 },
+    { group = "TermBar", start = 0 },
     { group = "TermBarNameFocused", start = 1 },
-    { group = "TermBarGapFocused", start = 23 },
+    { group = "TermBar", start = 23 },
   }, "statusline metacharacters in a command should not change highlights")
 end)
 
@@ -1468,19 +1468,19 @@ test("renders failed exit statuses beside active and inactive titles", function(
   local rendered = eval_winbar(failed, 24)
   same(rendered.str, "  failed " .. string.rep(" ", 15), "a running terminal should have no status box")
   same(highlight_spans(rendered), {
-    { group = "TermBarGapFocused", start = 0 },
+    { group = "TermBar", start = 0 },
     { group = "TermBarNameFocused", start = 1 },
-    { group = "TermBarGapFocused", start = 9 },
-  }, "a running terminal should use the focused leading gap, title, and fill highlights")
+    { group = "TermBar", start = 9 },
+  }, "a running terminal should use the focused base, title, and fill highlights")
 
   failed:exit(17)
   rendered = eval_winbar(failed, 24)
   same(rendered.str, "  failed  17 " .. string.rep(" ", 11), "a failure should display its exact exit status")
   same(highlight_spans(rendered), {
-    { group = "TermBarGapFocused", start = 0 },
+    { group = "TermBar", start = 0 },
     { group = "TermBarNameFocused", start = 1 },
     { group = "TermBarStatus", start = 9 },
-    { group = "TermBarGapFocused", start = 13 },
+    { group = "TermBar", start = 13 },
   }, "the status box should directly follow the focused title with padded status highlighting")
 
   local running = terminals.new("running")
@@ -1491,13 +1491,13 @@ test("renders failed exit statuses beside active and inactive titles", function(
     "a failed status should remain visible when its title becomes inactive"
   )
   same(highlight_spans(rendered), {
-    { group = "TermBarGapFocused", start = 0 },
+    { group = "TermBar", start = 0 },
     { group = "TermBarName", start = 1 },
     { group = "TermBarStatus", start = 9 },
-    { group = "TermBarGapFocused", start = 13 },
+    { group = "TermBar", start = 13 },
     { group = "TermBarNameFocused", start = 14 },
-    { group = "TermBarGapFocused", start = 23 },
-  }, "the leading gap, separator, and trailing fill should use the focused gap highlight")
+    { group = "TermBar", start = 23 },
+  }, "the leading space, separator, and trailing fill should use the focused base highlight")
 end)
 
 test("issues INFO notifications for OSC 9 requests", function()
@@ -1652,14 +1652,14 @@ test("tracks unread OSC 9 notifications in the winbar", function()
     "repeated background notifications should produce one padded attention box after the exit status"
   )
   same(highlight_spans(rendered), {
-    { group = "TermBarGapFocused", start = 0 },
+    { group = "TermBar", start = 0 },
     { group = "TermBarName", start = 1 },
     { group = "TermBarStatus", start = 13 },
     { group = "TermBarAttention", start = 17 },
-    { group = "TermBarGapFocused", start = 20 },
+    { group = "TermBar", start = 20 },
     { group = "TermBarNameFocused", start = 21 },
-    { group = "TermBarGapFocused", start = 30 },
-  }, "attention should compose with inactive titles, exit statuses, focused gaps, and the focused title")
+    { group = "TermBar", start = 30 },
+  }, "attention should compose with inactive titles, statuses, focused base regions, and the focused title")
 
   same(terminals.prev(), background, "focusing the notifying terminal should select it")
   rendered = eval_winbar(background, 40)
@@ -1783,9 +1783,9 @@ test("renders argv and shell terminal winbar titles", function()
   local rendered = eval_winbar(argv, 32)
   same(rendered.str, "  printf %s hello world " .. string.rep(" ", 8), "argv should be joined with single spaces")
   same(highlight_spans(rendered), {
-    { group = "TermBarGapFocused", start = 0 },
+    { group = "TermBar", start = 0 },
     { group = "TermBarNameFocused", start = 1 },
-    { group = "TermBarGapFocused", start = 24 },
+    { group = "TermBar", start = 24 },
   }, "an argv title should retain leading, focused, and trailing highlights")
 
   local shell = terminals.new()
@@ -1797,11 +1797,11 @@ test("renders argv and shell terminal winbar titles", function()
     "a nil command should use the shell terminal placeholder"
   )
   same(highlight_spans(rendered), {
-    { group = "TermBarGapFocused", start = 0 },
+    { group = "TermBar", start = 0 },
     { group = "TermBarName", start = 1 },
-    { group = "TermBarGapFocused", start = 24 },
+    { group = "TermBar", start = 24 },
     { group = "TermBarNameFocused", start = 25 },
-    { group = "TermBarGapFocused", start = 35 },
+    { group = "TermBar", start = 35 },
   }, "argv and shell terminal entries should preserve independent highlights")
 end)
 
@@ -1827,11 +1827,11 @@ test("uses persistent creation-time titles ahead of command titles", function()
     "explicit titles should render literally with control characters sanitized"
   )
   same(highlight_spans(rendered), {
-    { group = "TermBarGapFocused", start = 0 },
+    { group = "TermBar", start = 0 },
     { group = "TermBarName", start = 1 },
-    { group = "TermBarGapFocused", start = 8 },
+    { group = "TermBar", start = 8 },
     { group = "TermBarNameFocused", start = 9 },
-    { group = "TermBarGapFocused", start = 31 },
+    { group = "TermBar", start = 31 },
   }, "statusline metacharacters in an explicit title should not change highlights")
 
   vim.api.nvim_set_current_win(main_win)
@@ -1841,10 +1841,10 @@ test("uses persistent creation-time titles ahead of command titles", function()
   rendered = eval_winbar(empty, 8)
   same(rendered.str, string.rep(" ", 8), "an empty explicit title should not fall back to the command title")
   same(highlight_spans(rendered), {
-    { group = "TermBarGapFocused", start = 0 },
+    { group = "TermBar", start = 0 },
     { group = "TermBarNameFocused", start = 1 },
-    { group = "TermBarGapFocused", start = 3 },
-  }, "an empty explicit title should retain its leading gap and padded focused region")
+    { group = "TermBar", start = 3 },
+  }, "an empty explicit title should retain its leading space and padded focused region")
 end)
 
 test("updates winbar selection while preserving directory isolation", function()
@@ -1861,12 +1861,12 @@ test("updates winbar selection while preserving directory isolation", function()
   local rendered = eval_winbar(alpha, 24)
   same(rendered.str, "  alpha   beta " .. string.rep(" ", 9), "cycling should retain creation order")
   same(highlight_spans(rendered), {
-    { group = "TermBarGapFocused", start = 0 },
+    { group = "TermBar", start = 0 },
     { group = "TermBarNameFocused", start = 1 },
-    { group = "TermBarGapFocused", start = 8 },
+    { group = "TermBar", start = 8 },
     { group = "TermBarName", start = 9 },
-    { group = "TermBarGapFocused", start = 15 },
-  }, "cycling should move the focused title and gap highlights")
+    { group = "TermBar", start = 15 },
+  }, "cycling should move the focused title while retaining focused base highlights")
 
   vim.api.nvim_set_current_win(main_win)
   cd(dir_b)

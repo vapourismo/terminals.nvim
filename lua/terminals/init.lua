@@ -720,13 +720,13 @@ function M._winbar()
     return "%#NormalFloat#%="
   end
 
-  local gap_highlight = entry_focused(target) and "TermBarGapFocused" or "TermBarGap"
-  local gap = "%#" .. gap_highlight .. "#"
-  local parts = { gap .. " " }
+  local base_highlight = entry_focused(target) and "TermBar" or "TermBarNC"
+  local base = "%#" .. base_highlight .. "#"
+  local parts = { base .. " " }
   for index, entry in ipairs(group.terminals) do
     local title = escape_winbar_title(winbar_title(entry))
     if index > 1 then
-      parts[#parts + 1] = gap .. " "
+      parts[#parts + 1] = base .. " "
     end
     local title_highlight = "TermBarName"
     if index == group.active then
@@ -742,7 +742,7 @@ function M._winbar()
       parts[#parts + 1] = "%#TermBarAttention# ! "
     end
   end
-  parts[#parts + 1] = gap .. "%="
+  parts[#parts + 1] = base .. "%="
   return table.concat(parts)
 end
 
