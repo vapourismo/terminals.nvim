@@ -135,16 +135,18 @@ new({cmd}, {opts})                                   *terminals.new()*
     Create and select a terminal. Focus it when its resolved directory matches
     the applicable current directory; otherwise start it hidden. {cmd} may be
     a shell string, an argv list, or nil. {opts} is optional. {opts.title}
-    sets a persistent winbar title, and {opts.cwd} sets the process working
-    directory. {opts.position} sets the window position and completes the
-    terminal-group scope within the current tab. Returns the new Snacks
-    terminal object. For example:
+    sets a persistent winbar title, {opts.cwd} sets the process working
+    directory, and {opts.env} sets a per-creation process environment.
+    {opts.position} sets the window position and completes the terminal-group
+    scope within the current tab. Returns the new Snacks terminal object. For
+    example:
     >lua
 
         require("terminals").new("npm test", {
           cwd = "../app",
           position = "right",
           title = "Tests",
+          env = { NODE_ENV = "test" },
         })
 <
 
@@ -155,11 +157,17 @@ new({cmd}, {opts})                                   *terminals.new()*
     The resolved absolute directory is passed to Snacks as `cwd` and forms the
     directory portion of the group key.
 
+    {opts.env} is an optional string-to-string table passed to Snacks for the
+    spawned process. It applies only to this terminal creation. When omitted,
+    it remains nil so the process uses the usual Snacks/Neovim environment
+    inheritance.
+
     {opts.position} may be "float", "top", "bottom", "left", or "right".
     Without it, new() inherits a focused managed terminal's position, or uses
     setup's `position` outside one. The resolved position is stored at
-    creation and is unaffected by later setup calls. :TermNew has no custom
-    directory or position syntax; use this Lua API instead.
+    creation and is unaffected by later setup calls. :TermNew retains its
+    command-only syntax and has no custom directory, position, or environment
+    syntax; use this Lua API instead.
 
     If the resolved directory differs from the captured base, the process
     starts as its current-tab target group's active selection, but its window

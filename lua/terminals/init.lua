@@ -7,6 +7,7 @@ local M = {}
 ---@field title? string
 ---@field cwd? string
 ---@field position? string
+---@field env? table<string, string>
 
 ---@class terminals.ScopeOptions
 ---@field position? string
@@ -1246,6 +1247,7 @@ function M.new(cmd, opts)
       auto_close = false,
       cwd = cwd,
       count = next_count,
+      env = opts.env,
       win = win,
     })
   end)

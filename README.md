@@ -104,14 +104,15 @@ changes, focuses the resolved target, and inserts the location through the
 terminal buffer's channel. It sends no newline, so the reference remains in the
 terminal input for editing.
 
-The Lua API accepts a persistent winbar title, working directory, and position
-at creation time:
+The Lua API accepts a persistent winbar title, working directory, position, and
+per-creation process environment:
 
 ```lua
 require("terminals").new("npm test", {
   cwd = "../app",
   position = "right",
   title = "Tests",
+  env = { NODE_ENV = "test" },
 })
 ```
 
@@ -122,6 +123,10 @@ managed terminal. With no `opts.cwd`, `new()` uses that same base directory.
 The resolved absolute path is passed to Snacks as the process `cwd` and owns the
 terminal's directory scope.
 
+`opts.env` is an optional string-to-string table passed to Snacks for the
+spawned process. It applies only to that terminal creation. When omitted, it
+remains `nil`, preserving the usual Snacks/Neovim environment inheritance.
+
 `opts.position` may select any supported position for that terminal. When it is
 omitted, `new()` inherits the focused managed terminal's position, or uses
 `setup().position` outside a managed terminal. The resolved creation
@@ -129,7 +134,7 @@ position is retained even if `setup()` changes later. Equivalent normalized
 paths share creation order and active selection only when their owner tabpages
 and positions also match. Tabs never adopt or reuse one another's terminal
 objects. `:TermNew` retains its existing command-only syntax; use the Lua API
-for custom directories or positions.
+for custom directories, positions, or environments.
 
 When the resolved path matches the captured base directory, `new()` replaces a
 visible terminal only at the target position in the current tab and focuses the

@@ -247,6 +247,41 @@ test("registers commands and forwards command forms", function()
   same(stub.opened[before + 3].opts.count, first_count + 2, "terminal counts should increase by creation")
 end)
 
+test("forwards per-terminal environments without leaking between creations", function()
+  local dir = directory("creation-environment")
+  cd(dir)
+  terminals.setup()
+
+  local environment = {
+    NODE_ENV = "test",
+    EMPTY_VALUE = "",
+    FEATURE_FLAG = "enabled",
+  }
+  local with_environment = terminals.new("with-environment", {
+    cwd = ".",
+    position = "right",
+    env = environment,
+  })
+
+  same(with_environment.opts.env, {
+    NODE_ENV = "test",
+    EMPTY_VALUE = "",
+    FEATURE_FLAG = "enabled",
+  }, "the complete environment should reach Snacks")
+  same(with_environment.opts.cwd, dir, "environment forwarding should retain the resolved cwd")
+  same(with_environment.opts.auto_close, false, "environment forwarding should retain managed auto-close")
+  same(with_environment.opts.win.position, "right", "environment forwarding should retain window options")
+  truthy(type(with_environment.opts.count) == "number", "environment forwarding should retain the creation count")
+
+  local without_environment = terminals.new("without-environment")
+  same(rawget(without_environment.opts, "env"), nil, "an omitted environment should remain unset")
+  same(
+    without_environment.opts.count,
+    with_environment.opts.count + 1,
+    "an omitted environment should not affect later creation options"
+  )
+end)
+
 test("formats Visual locations with line and byte-column ranges", function()
   local dir = directory("send-formatting")
   cd(dir)
