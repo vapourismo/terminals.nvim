@@ -133,6 +133,34 @@ setup({opts})                                     *terminals.setup()*
     The default is "float". The former {opts.win} field has been removed;
     window and mapping behavior is plugin-owned. Returns nothing.
 
+current()                                       *terminals.current()*
+    Return a read-only metadata snapshot for the focused managed terminal, or
+    nil unless both the current window and buffer match the same valid managed
+    terminal. The result has these fields:
+
+        cwd        string
+        cmd        string|string[]|nil
+        title      string
+        position   string
+
+    `cwd` is the normalized process working directory stored when the terminal
+    was created. It does not track later shell directory changes. It is not
+    the group directory, which may differ for a terminal created with
+    {opts.group}=true and is not included in this result.
+
+    `cmd` preserves the original creation command's string or argv-list form.
+    It is nil for a default shell terminal. Returned argv lists are copies, so
+    changing the result does not mutate registry state. `title` is the logical
+    label used before winbar escaping: explicit non-nil {opts.title}, including
+    an empty string, otherwise a command string, an argv list joined with
+    spaces, or "terminal" when no command was supplied. `position` is the
+    retained "float", "top", "bottom", "left", or "right" position.
+
+    A selected or hidden terminal does not qualify. Neither does a visible but
+    unfocused edge terminal, editor window, or unmanaged Neovim terminal. This
+    Lua-only query never focuses, shows, hides, or otherwise operates on a
+    terminal; there is no corresponding Vim command.
+
 new({cmd}, {opts})                                   *terminals.new()*
     Create and select a terminal. Focus it when its target group directory is
     the applicable current group; otherwise start it hidden. {cmd} may be a

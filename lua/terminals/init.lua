@@ -17,6 +17,12 @@ local M = {}
 ---@field position? string
 ---@field _command? table
 
+---@class terminals.Current
+---@field cwd string
+---@field cmd? string|string[]
+---@field title string
+---@field position string
+
 ---@class terminals.Entry
 ---@field owner integer
 ---@field group_cwd string
@@ -673,6 +679,12 @@ local function escape_winbar_title(title)
   return (title:gsub("%c", " "):gsub("%%", "%%%%"))
 end
 
+---@param cmd? string|string[]
+---@return string|string[]?
+local function copy_command(cmd)
+  return type(cmd) == "table" and vim.deepcopy(cmd) or cmd
+end
+
 ---@param entry terminals.Entry
 ---@return string
 local function winbar_title(entry)
@@ -1225,6 +1237,22 @@ function M.setup(opts)
   configured_position = opts and opts.position or default_position
 end
 
+---Return a snapshot of the focused managed terminal's metadata.
+---@return terminals.Current?
+function M.current()
+  local entry = focused_entry()
+  if not entry then
+    return nil
+  end
+
+  return {
+    cwd = entry.cwd,
+    cmd = copy_command(entry.cmd),
+    title = winbar_title(entry),
+    position = entry.position,
+  }
+end
+
 ---Create a terminal, focusing it when its target group directory is applicable.
 ---@param cmd? string|string[]
 ---@param opts? terminals.NewOptions
@@ -1235,6 +1263,7 @@ function M.new(cmd, opts)
   local cwd = resolve_cwd(opts.cwd, base)
   local group_cwd = opts.group and base or cwd
   local foreground = group_cwd == base
+  local creation_cmd = copy_command(cmd)
   next_count = next_count + 1
 
   local terminal
@@ -1263,7 +1292,7 @@ function M.new(cmd, opts)
     group_cwd = group_cwd,
     cwd = cwd,
     position = position,
-    cmd = cmd,
+    cmd = creation_cmd,
     terminal = terminal,
     title = opts.title,
     attention = false,

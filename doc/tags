@@ -20,6 +20,7 @@ terminals-requirements	terminals.txt	/*terminals-requirements*
 terminals-setup	terminals.txt	/*terminals-setup*
 terminals-t-attention	terminals.txt	/*terminals-t-attention*
 terminals.close()	terminals.txt	/*terminals.close()*
+terminals.current()	terminals.txt	/*terminals.current()*
 terminals.new()	terminals.txt	/*terminals.new()*
 terminals.next()	terminals.txt	/*terminals.next()*
 terminals.nvim.txt	terminals.txt	/*terminals.nvim.txt*

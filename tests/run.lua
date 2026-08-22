@@ -282,6 +282,111 @@ test("forwards per-terminal environments without leaking between creations", fun
   )
 end)
 
+test("returns current metadata only for an exactly focused managed terminal", function()
+  local dir = directory("current-focus")
+  cd(dir)
+  terminals.setup()
+
+  same(terminals.current(), nil, "an editor window should not have current terminal metadata")
+
+  local edge = terminals.new("edge", { position = "left" })
+  same(terminals.current(), {
+    cwd = dir,
+    cmd = "edge",
+    title = "edge",
+    position = "left",
+  }, "a focused managed terminal should be recognized")
+
+  vim.api.nvim_set_current_win(main_win)
+  truthy(edge:win_valid(), "the edge terminal should remain visible after losing focus")
+  local show_count = edge.show_count
+  local hide_count = edge.hide_count
+  local focus_count = edge.focus_count
+  same(terminals.current(), nil, "a visible but unfocused managed terminal should not be current")
+  same(edge.show_count, show_count, "the query should not show an unfocused terminal")
+  same(edge.hide_count, hide_count, "the query should not hide an unfocused terminal")
+  same(edge.focus_count, focus_count, "the query should not focus an unfocused terminal")
+
+  local unmanaged = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_open_term(unmanaged, {})
+  vim.api.nvim_win_set_buf(main_win, unmanaged)
+  same(vim.bo[unmanaged].buftype, "terminal", "the unmanaged test buffer should be a Neovim terminal")
+  same(terminals.current(), nil, "an unmanaged Neovim terminal should not be current")
+  truthy(edge:win_valid(), "querying from an unmanaged terminal should preserve the visible edge terminal")
+  edge:hide()
+end)
+
+test("reports a grouped terminal's process metadata without its group cwd", function()
+  local group_dir = directory("current-group")
+  local process_dir = directory("current-process")
+  local child = process_dir .. "/child"
+  vim.fn.mkdir(child, "p")
+  cd(group_dir)
+  terminals.setup({ position = "right" })
+
+  terminals.new("base")
+  local grouped = terminals.new("npm test", {
+    cwd = child .. "/..",
+    group = true,
+    title = "Tests",
+  })
+  current_is(grouped)
+
+  local show_count = grouped.show_count
+  local hide_count = grouped.hide_count
+  local focus_count = grouped.focus_count
+  same(terminals.current(), {
+    cwd = process_dir,
+    cmd = "npm test",
+    title = "Tests",
+    position = "right",
+  }, "current should return creation-time process metadata and the resolved position")
+  truthy(process_dir ~= group_dir, "the process cwd should differ from the retained group cwd")
+  same(grouped.show_count, show_count, "the query should not show the focused terminal")
+  same(grouped.hide_count, hide_count, "the query should not hide the focused terminal")
+  same(grouped.focus_count, focus_count, "the query should not refocus the focused terminal")
+  grouped:hide()
+end)
+
+test("snapshots command forms and title fallbacks in current metadata", function()
+  local dir = directory("current-command-forms")
+  cd(dir)
+  terminals.setup({ position = "bottom" })
+
+  local argv = { "printf", "%s", "hello world" }
+  terminals.new(argv)
+  local snapshot = terminals.current()
+  same(snapshot, {
+    cwd = dir,
+    cmd = { "printf", "%s", "hello world" },
+    title = "printf %s hello world",
+    position = "bottom",
+  }, "argv commands should remain lists while their title is space-joined")
+  truthy(snapshot.cmd ~= argv, "the returned argv should be a snapshot")
+  snapshot.cmd[1] = "mutated"
+  table.insert(snapshot.cmd, "extra")
+  same(terminals.current().cmd, { "printf", "%s", "hello world" }, "mutating a snapshot should not alter registry state")
+
+  argv[1] = "changed after creation"
+  same(terminals.current().cmd, { "printf", "%s", "hello world" }, "the registry should retain the creation-time argv")
+
+  terminals.new()
+  same(terminals.current(), {
+    cwd = dir,
+    title = "terminal",
+    position = "bottom",
+  }, "an omitted command should be nil and use the terminal title fallback")
+
+  local empty_title = terminals.new("empty-title", { title = "" })
+  same(terminals.current(), {
+    cwd = dir,
+    cmd = "empty-title",
+    title = "",
+    position = "bottom",
+  }, "an explicit empty title should remain authoritative")
+  empty_title:hide()
+end)
+
 test("formats Visual locations with line and byte-column ranges", function()
   local dir = directory("send-formatting")
   cd(dir)

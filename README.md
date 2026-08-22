@@ -94,6 +94,9 @@ installed.
 | `:TermNext` | `.next(opts?)` | Circularly select the next terminal for the current tab's applicable `(group directory, position)` group. |
 | `:TermToggle` | `.toggle(opts?)` | Hide/show the current tab's selected terminal for the applicable group, creating a shell terminal if it is empty. |
 | `:'<,'>TermSend [position]` | `.send(opts?)` | Focus a current-tab managed terminal and insert the Visual selection's file location without submitting it. |
+| *(none)* | `require("terminals").current()` | Return a read-only snapshot of the focused managed terminal's metadata, or `nil`. |
+
+`current()` is Lua-only; no Vim command is provided for this query.
 
 `TermNew` forwards its command-line arguments as one shell string and provides
 shell-command completion. Passing no command creates a terminal using the shell
@@ -163,6 +166,38 @@ remain foreground operations. In particular, calling plain `new()` or `<D-n>`
 from a `group = true` cross-cwd terminal uses its group directory rather than
 inheriting its exceptional process cwd.
 
+The Lua-only `current()` query returns a metadata snapshot for the focused
+managed terminal:
+
+```lua
+local current = require("terminals").current()
+-- {
+--   cwd = "/home/me/app",
+--   cmd = { "npm", "test" },
+--   title = "npm test",
+--   position = "right",
+-- }
+```
+
+The result has `cwd: string`, `cmd?: string|string[]`, `title: string`, and
+`position: string`. `cwd` is the normalized **process cwd** captured when the
+terminal was created. It is not dynamically updated after a shell `cd`, and it
+is not the group directory: for a `group = true` terminal, those directories
+may differ. The group directory is not exposed by `current()`.
+
+`cmd` preserves the original string or argv-list creation form and is `nil` for
+a default shell terminal. Returned argv lists are copied, so changing a result
+cannot mutate later snapshots. `title` is the logical, unescaped winbar label:
+an explicit non-`nil` `opts.title`, including `""`, otherwise the command
+string, an argv list joined with spaces, or `"terminal"` when `cmd` is `nil`.
+`position` is the retained resolved position.
+
+The result is `nil` unless both the current window and buffer belong to the
+same valid managed terminal. A hidden or merely selected terminal, a visible
+but unfocused edge terminal, an editor window, and an unmanaged Neovim
+terminal do not qualify. The query never focuses, shows, hides, or otherwise
+operates on a terminal.
+
 `prev()`, `next()`, and `toggle()` accept an optional position target:
 
 ```lua
@@ -206,11 +241,13 @@ A characterwise selection that covers complete lines uses the shorter line
 form. Reversed selections are normalized. A path outside the terminal's
 process cwd may start with `../`.
 
-The Lua functions return the selected Snacks terminal object. `close()`,
-`prev()`, and `next()` return `nil` when there is no applicable managed
-terminal. A targeted `toggle()` creates a shell terminal when that exact scope
-is empty. `send()` returns the focused terminal after a successful channel
-write, and `nil` after an error. `setup()` has no return value.
+The terminal-operating Lua functions return the selected Snacks terminal
+object. `close()`, `prev()`, and `next()` return `nil` when there is no
+applicable managed terminal. A targeted `toggle()` creates a shell terminal
+when that exact scope is empty. `send()` returns the focused terminal after a
+successful channel write, and `nil` after an error. In contrast, `current()`
+returns the metadata snapshot described above, or `nil`; `setup()` has no
+return value.
 
 At most one managed terminal is shown per position in each tab. Selecting
 another terminal hides only the visible terminal at that position in its owner
