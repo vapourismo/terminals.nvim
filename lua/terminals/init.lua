@@ -17,6 +17,9 @@ local M = {}
 ---@field position? string
 ---@field _command? table
 
+---@class terminals.MoveOptions
+---@field position string
+
 ---@class terminals.Current
 ---@field cwd string
 ---@field cmd? string|string[]
@@ -30,6 +33,8 @@ local M = {}
 ---@field position string
 ---@field cmd? string|string[]
 ---@field terminal snacks.terminal
+---@field creation_order integer
+---@field position_ref table
 ---@field title? string
 ---@field exit_status? integer
 ---@field attention boolean
@@ -297,6 +302,18 @@ local function remember_side_width(owner, position, terminal)
   side_widths[owner][position] = vim.api.nvim_win_get_width(terminal.win)
 end
 
+---@param terminal snacks.terminal
+---@return table?, boolean
+local function terminal_window_options(terminal)
+  if type(terminal.opts) ~= "table" then
+    return nil, false
+  end
+  if type(terminal.opts.win) == "table" then
+    return terminal.opts.win, true
+  end
+  return terminal.opts, false
+end
+
 ---@param owner integer
 ---@param position string
 ---@param terminal snacks.terminal
@@ -305,8 +322,8 @@ local function enforce_side_window(owner, position, terminal)
     return
   end
 
-  if type(terminal.opts) == "table" then
-    local win = type(terminal.opts.win) == "table" and terminal.opts.win or terminal.opts
+  local win = terminal_window_options(terminal)
+  if win then
     win.wo = type(win.wo) == "table" and win.wo or {}
     win.wo.winfixwidth = false
   end
@@ -621,8 +638,7 @@ local function show_unfocused_edge_fallback(entry)
       -- A hidden Snacks window normally retains the enter behavior it had at
       -- creation. Disable it only while restoring a position whose terminal
       -- exited, so an unfocused edge split stays open without stealing focus.
-      local opts = type(terminal.opts) == "table" and terminal.opts or nil
-      local win = opts and (type(opts.win) == "table" and opts.win or opts) or nil
+      local win = terminal_window_options(terminal)
       local enter = win and win.enter
       if win then
         win.enter = false
@@ -638,14 +654,13 @@ local function show_unfocused_edge_fallback(entry)
       enforce_side_window(entry.owner, entry.position, terminal)
     end
 
-    if entry.owner == vim.api.nvim_get_current_tabpage() then
-      show()
-      return
-    end
-
     local execution_win = owner_execution_window(entry.owner, entry.position)
     if execution_win then
+      -- Run from a regular owner-tab window even when the currently focused
+      -- destination is a float, then restore the caller's current window.
       vim.api.nvim_win_call(execution_win, show)
+    elseif entry.owner == vim.api.nvim_get_current_tabpage() then
+      show()
     end
   end)
 end
@@ -760,7 +775,8 @@ end
 
 ---@param owner integer
 ---@param position string
-local function window_options(owner, position)
+---@param position_ref table
+local function window_options(owner, position, position_ref)
   local wo = {
     foldenable = false,
     foldmethod = "manual",
@@ -779,10 +795,13 @@ local function window_options(owner, position)
     keys = keys,
   }
   if is_side(position) then
+    position_ref.enforces_side = true
     win.width = side_widths[owner] and side_widths[owner][position]
     win.on_win = function(snacks_win)
       -- Snacks forces fixed dimensions for splits after merging window options.
-      enforce_side_window(owner, position, snacks_win)
+      -- Resolve the position at callback time because move() reuses this object.
+      local entry = position_ref.entry
+      enforce_side_window(owner, entry and entry.position or position, snacks_win)
     end
   end
   return win
@@ -1267,12 +1286,13 @@ function M.new(cmd, opts)
   next_count = next_count + 1
 
   local terminal
+  local position_ref = {}
   without_winleave(function()
     remember_visible_side_width(owner, position)
     if foreground then
       hide_visible(owner, position)
     end
-    local win = window_options(owner, position)
+    local win = window_options(owner, position, position_ref)
     if not foreground then
       win.enter = false
     end
@@ -1294,6 +1314,8 @@ function M.new(cmd, opts)
     position = position,
     cmd = creation_cmd,
     terminal = terminal,
+    creation_order = next_count,
+    position_ref = position_ref,
     title = opts.title,
     attention = false,
     hiding = false,
@@ -1306,6 +1328,7 @@ function M.new(cmd, opts)
     finalization_was_focused = false,
     finalization_was_visible = false,
   }
+  position_ref.entry = entry
   clear_departing_state(entry)
   group.terminals[#group.terminals + 1] = entry
   group.active = #group.terminals
@@ -1324,6 +1347,214 @@ function M.new(cmd, opts)
     hide_departed_float(previous, position)
   end
   return terminal
+end
+
+---@param owner integer
+---@param position string
+---@param position_ref table
+---@return table?
+local function resolved_snacks_position(owner, position, position_ref)
+  local module = snacks()
+  if
+    type(module.win) ~= "table"
+    or type(module.win.resolve) ~= "function"
+    or type(module.config) ~= "table"
+    or type(module.config.get) ~= "function"
+  then
+    return nil
+  end
+
+  -- Snacks resolves terminal and window styles before constructing its
+  -- persistent object. Repeat that resolution without constructing a window
+  -- so a float moved to a split (or vice versa) gets the target's dimensions.
+  local terminal_config = module.config.get("terminal", { win = { style = "terminal" } })
+  local target = module.win.resolve(
+    "terminal",
+    { position = position },
+    terminal_config.win,
+    window_options(owner, position, { entry = position_ref.entry }),
+    { show = false }
+  )
+  target = module.win.resolve(module.config.get("win", {}), target)
+  if target.minimal ~= false then
+    target = module.win.resolve("minimal", target)
+  end
+  target = module.win.resolve(position == "float" and "float" or "split", target)
+  return target
+end
+
+local position_geometry = {
+  "anchor",
+  "backdrop",
+  "border",
+  "col",
+  "height",
+  "max_height",
+  "max_width",
+  "min_height",
+  "min_width",
+  "row",
+  "width",
+  "zindex",
+}
+
+---@param entry terminals.Entry
+---@param position string
+local function reconfigure_position(entry, position)
+  entry.position = position
+
+  local win, nested = terminal_window_options(entry.terminal)
+  if not win then
+    return
+  end
+
+  win.position = position
+  if not nested then
+    local target = resolved_snacks_position(entry.owner, position, entry.position_ref)
+    if target then
+      for _, option in ipairs(position_geometry) do
+        win[option] = vim.deepcopy(target[option])
+      end
+    end
+  end
+
+  win.wo = type(win.wo) == "table" and win.wo or {}
+  win.wo.foldenable = false
+  win.wo.foldmethod = "manual"
+  win.wo.winbar = winbar_expression
+  win.wo.winhighlight = managed_winhighlight
+  win.wo.winfixwidth = nil
+  if is_side(position) then
+    win.wo.winfixwidth = false
+  end
+  if not nested then
+    win.wo.winfixheight = nil
+    if is_split(position) and not is_side(position) then
+      win.wo.winfixheight = true
+    end
+  end
+
+  if nested then
+    -- This is the unresolved options shape used by Snacks.terminal.open().
+    -- Leave unremembered dimensions to Snacks instead of carrying a source
+    -- side's width into an unrelated destination.
+    win.width = is_side(position) and side_widths[entry.owner]
+      and side_widths[entry.owner][position]
+      or nil
+  elseif is_side(position) then
+    -- A real Snacks terminal stores the resolved window config directly.
+    -- Override it only when this destination side has a live remembered width.
+    local width = side_widths[entry.owner] and side_widths[entry.owner][position]
+    if width then
+      win.width = width
+    end
+  end
+
+  if is_side(position) and not entry.position_ref.enforces_side then
+    local on_win = win.on_win
+    win.on_win = function(snacks_win)
+      if on_win then
+        on_win(snacks_win)
+      end
+      enforce_side_window(entry.owner, entry.position, snacks_win)
+    end
+    entry.position_ref.enforces_side = true
+  end
+end
+
+---@param group terminals.Group
+---@param entry terminals.Entry
+---@return terminals.Entry?
+local function remove_for_move(group, entry)
+  local index = entry_index(group.terminals, entry)
+  if not index then
+    return nil
+  end
+
+  local fallback = group.terminals[index - 1] or group.terminals[index + 1]
+  table.remove(group.terminals, index)
+  if #group.terminals > 0 then
+    group.active = index > 1 and index - 1 or 1
+  end
+  return fallback
+end
+
+---@param group terminals.Group
+---@param entry terminals.Entry
+local function insert_by_creation_order(group, entry)
+  local index = #group.terminals + 1
+  for candidate, existing in ipairs(group.terminals) do
+    if entry.creation_order < existing.creation_order then
+      index = candidate
+      break
+    end
+  end
+  table.insert(group.terminals, index, entry)
+  group.active = index
+end
+
+---Move the focused managed terminal to another position group.
+---@param opts terminals.MoveOptions
+---@return snacks.terminal?
+function M.move(opts)
+  local position = type(opts) == "table" and opts.position or nil
+  if position == nil then
+    notify_error("Terminal position is required.")
+    return nil
+  end
+  if not valid_positions[position] then
+    notify_error("Invalid terminal position: " .. tostring(position) .. ".")
+    return nil
+  end
+
+  local entry = focused_entry()
+  if not entry then
+    return nil
+  end
+  if position == entry.position then
+    return entry.terminal
+  end
+
+  local owner = entry.owner
+  local group_cwd = entry.group_cwd
+  local source_position = entry.position
+  local source = group_for(owner, group_cwd, source_position)
+  if not source then
+    return nil
+  end
+
+  local fallback
+  without_winleave(function()
+    -- Capture the source side before Snacks tears down its old window.
+    remember_side_width(owner, source_position, entry.terminal)
+    local source_width = side_widths[owner] and side_widths[owner][source_position]
+    entry.terminal:hide()
+
+    fallback = remove_for_move(source, entry)
+    if #source.terminals == 0 then
+      delete_group(owner, group_cwd, source_position)
+      if source_width then
+        side_widths[owner] = side_widths[owner] or {}
+        side_widths[owner][source_position] = source_width
+      end
+    end
+
+    local destination = prune(owner, group_cwd, position) or ensure_group(owner, group_cwd, position)
+    reconfigure_position(entry, position)
+    insert_by_creation_order(destination, entry)
+
+    -- This also captures the destination's latest side width before hiding it.
+    hide_visible(owner, position, entry.terminal)
+    reconfigure_position(entry, position)
+    entry.terminal:show()
+    enforce_side_window(owner, position, entry.terminal)
+    entry.terminal:focus()
+  end)
+
+  if is_split(source_position) then
+    show_unfocused_edge_fallback(fallback)
+  end
+  return entry.terminal
 end
 
 ---Destroy the focused managed terminal.

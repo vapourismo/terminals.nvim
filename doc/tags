@@ -1,10 +1,12 @@
 :TermClose	terminals.txt	/*:TermClose*
+:TermMove	terminals.txt	/*:TermMove*
 :TermNew	terminals.txt	/*:TermNew*
 :TermNext	terminals.txt	/*:TermNext*
 :TermPrev	terminals.txt	/*:TermPrev*
 :TermSend	terminals.txt	/*:TermSend*
 :TermToggle	terminals.txt	/*:TermToggle*
 TermClose	terminals.txt	/*TermClose*
+TermMove	terminals.txt	/*TermMove*
 TermNew	terminals.txt	/*TermNew*
 TermNext	terminals.txt	/*TermNext*
 TermPrev	terminals.txt	/*TermPrev*
@@ -21,6 +23,7 @@ terminals-setup	terminals.txt	/*terminals-setup*
 terminals-t-attention	terminals.txt	/*terminals-t-attention*
 terminals.close()	terminals.txt	/*terminals.close()*
 terminals.current()	terminals.txt	/*terminals.current()*
+terminals.move()	terminals.txt	/*terminals.move()*
 terminals.new()	terminals.txt	/*terminals.new()*
 terminals.next()	terminals.txt	/*terminals.next()*
 terminals.nvim.txt	terminals.txt	/*terminals.nvim.txt*

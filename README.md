@@ -6,11 +6,13 @@ persistent window objects provided by
 It keeps terminals ordered by creation time and remembers the selected
 terminal independently in each tabpage.
 
-Every terminal belongs permanently to the tabpage where it was created.
-Terminals are grouped by owner tabpage, a normalized **group directory**, and
-their window position. Each `(tabpage, group directory, position)` group has
-its own creation order and selected terminal. The group directory normally
-matches the terminal process's working directory, but `new()` can keep the
+Every terminal belongs permanently to the tabpage and normalized **group
+directory** where it was created. Terminals are additionally grouped by their
+effective window position. Each `(tabpage, group directory, position)` group
+has its own creation-ordered carousel and selected terminal. A terminal can
+move between position groups without changing its owner or group directory.
+The group directory normally matches the terminal process's working directory,
+but `new()` can keep the
 current group while spawning a process elsewhere. Directories are normalized
 without resolving symbolic links. Outside a managed terminal, the default
 scope uses Neovim's working directory returned by `getcwd()` and the configured
@@ -51,9 +53,10 @@ require("terminals").setup({
 The top-level `position` setting may be `float`, `top`, `bottom`, `left`, or
 `right`. The Snacks buffer-replacing `current` position is not part of this
 plugin's supported contract. Configuration affects terminals created after
-`setup()`; existing terminal objects keep their resolved position. A per-call
-`opts.position` takes precedence over a focused managed terminal's position,
-which in turn takes precedence over the configured default.
+`setup()`; changing setup does not reposition existing terminal objects. The
+`move()` API can explicitly change an existing terminal's effective position.
+A per-call `opts.position` takes precedence over a focused managed terminal's
+position, which in turn takes precedence over the configured default.
 
 The former `win` configuration field has been removed. This is a breaking API
 change: window dimensions, callbacks, window-local options, and key overrides
@@ -90,6 +93,7 @@ installed.
 | --- | --- | --- |
 | `:TermNew [command...]` | `require("terminals").new(cmd?, opts?)` | Create and select a terminal. Lua focuses it when its target group directory is the applicable group; otherwise it starts hidden. |
 | `:TermClose` | `.close()` | Destroy the focused managed terminal; do nothing outside one. |
+| `:TermMove {position}` | `.move({ position = ... })` | Move the focused managed terminal to another position group without restarting it. |
 | `:TermPrev` | `.prev(opts?)` | Circularly select the previous terminal for the current tab's applicable `(group directory, position)` group. |
 | `:TermNext` | `.next(opts?)` | Circularly select the next terminal for the current tab's applicable `(group directory, position)` group. |
 | `:TermToggle` | `.toggle(opts?)` | Hide/show the current tab's selected terminal for the applicable group, creating a shell terminal if it is empty. |
@@ -101,6 +105,11 @@ installed.
 `TermNew` forwards its command-line arguments as one shell string and provides
 shell-command completion. Passing no command creates a terminal using the shell
 configured by Snacks.
+
+`TermMove` requires exactly one position: `float`, `top`, `bottom`, `left`, or
+`right`, with position completion. For example, `:TermMove right` moves the
+focused managed terminal; a valid command outside one does nothing. No default
+key mapping is installed for moving terminals.
 
 `TermSend` is a Visual-mode command with one optional position: `float`, `top`,
 `bottom`, `left`, or `right`. For example, select code and run `:TermSend right`.
@@ -143,10 +152,10 @@ remains `nil`, preserving the usual Snacks/Neovim environment inheritance.
 `opts.position` may select any supported position for that terminal. When it is
 omitted, `new()` inherits the focused managed terminal's position, or uses
 `setup().position` outside a managed terminal. The resolved creation position
-is retained even if `setup()` changes later. Equivalent normalized group
-directories share creation order and active selection only when their owner
-tabpages and positions also match. Tabs never adopt or reuse one another's
-terminal objects. `:TermNew` retains its existing command-only syntax; use the
+is retained if `setup()` changes later, but can be changed explicitly with
+`move()`. Equivalent normalized group directories share creation order and
+active selection only when their owner tabpages and effective positions also
+match. Tabs never adopt or reuse one another's terminal objects. `:TermNew` retains its existing command-only syntax; use the
 Lua API for custom directories, grouping, positions, or environments.
 
 When the target group directory matches the captured applicable group,
@@ -156,9 +165,8 @@ in the foreground and makes it the active entry in the current group. An
 explicit different position also opens in the foreground while edge terminals
 at other positions and in other tabs remain visible. With `group` omitted or
 false, an explicit cwd that differs from the applicable group starts in the
-background as its process-cwd group's active selection; the current window and
-visible terminals remain in place. Toggling from that target directory in the owner tab
-later reveals the same terminal.
+background as its process-cwd group's active selection; the current window and visible terminals remain in place. Toggling from that
+target directory in the owner tab later reveals the same terminal.
 
 Because `:TermNew` and the default new-terminal mapping pass no options, they
 use the applicable group directory as both process cwd and group directory and
@@ -190,13 +198,43 @@ a default shell terminal. Returned argv lists are copied, so changing a result
 cannot mutate later snapshots. `title` is the logical, unescaped winbar label:
 an explicit non-`nil` `opts.title`, including `""`, otherwise the command
 string, an argv list joined with spaces, or `"terminal"` when `cmd` is `nil`.
-`position` is the retained resolved position.
+`position` is the terminal's current effective position, including a position
+changed by `move()`.
 
 The result is `nil` unless both the current window and buffer belong to the
 same valid managed terminal. A hidden or merely selected terminal, a visible
 but unfocused edge terminal, an editor window, and an unmanaged Neovim
 terminal do not qualify. The query never focuses, shows, hides, or otherwise
 operates on a terminal.
+
+`move()` requires a supported position and operates only on the focused
+managed terminal:
+
+```lua
+local terminal = require("terminals").move({ position = "right" })
+```
+
+It returns the same Snacks terminal object after a move or a same-position
+no-op. It returns `nil` and reports an error through Snacks when the target is
+missing or invalid, and returns `nil` without an error for a valid target used
+outside a focused managed terminal. A same-position move does not hide,
+reorder, or refocus the terminal.
+
+Moving changes only position-group membership and the effective window
+position. It preserves the owner tab, group directory, process cwd, buffer and
+job, command, title, exit status, attention and lifecycle state; no process is
+restarted and no replacement Snacks object is created. The terminal is
+inserted into the destination carousel according to its original creation
+order and becomes active there. Any visible destination terminal is hidden but
+remains alive in that carousel.
+
+The source group selects the moved terminal's immediate predecessor, or its
+immediate successor if no predecessor exists. A fallback at `top`, `bottom`,
+`left`, or `right` is shown without taking focus from the moved terminal; a
+`float` fallback remains hidden. Empty source groups are removed. Side widths
+are remembered independently: the old side retains its live width and the
+moved terminal uses the destination side's remembered width when available.
+Other positions, group directories, and tabs are unchanged.
 
 `prev()`, `next()`, and `toggle()` accept an optional position target:
 
@@ -242,8 +280,8 @@ form. Reversed selections are normalized. A path outside the terminal's
 process cwd may start with `../`.
 
 The terminal-operating Lua functions return the selected Snacks terminal
-object. `close()`, `prev()`, and `next()` return `nil` when there is no
-applicable managed terminal. A targeted `toggle()` creates a shell terminal
+object. `close()`, `move()`, `prev()`, and `next()` return `nil` when there is
+no applicable managed terminal. A targeted `toggle()` creates a shell terminal
 when that exact scope is empty. `send()` returns the focused terminal after a
 successful channel write, and `nil` after an error. In contrast, `current()`
 returns the metadata snapshot described above, or `nil`; `setup()` has no
@@ -264,10 +302,10 @@ terminated and buffers wiped without expected-termination notifications;
 terminals owned by other tabs are unaffected.
 
 Every managed terminal has a left-aligned winbar listing only its exact owner
-tab, group directory, and position group's terminals in creation order. A
-non-`nil` `opts.title`, including an empty string, is authoritative for the terminal's
-lifetime. Otherwise, the winbar
-uses the terminal's creation command: shell strings are displayed directly,
+tab, group directory, and effective position group's terminals in original
+creation order, including after moves. A non-`nil` `opts.title`, including an
+empty string, is authoritative for the terminal's lifetime. Otherwise, the
+winbar uses the terminal's creation command: shell strings are displayed directly,
 argv lists are joined with single spaces without shell quoting, and a terminal
 created without a command is labeled `terminal`. The selected title uses
 `TermBarNameFocused` when its managed terminal window and buffer are current,

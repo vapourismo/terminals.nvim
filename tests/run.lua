@@ -176,23 +176,26 @@ end
 test("registers commands and forwards command forms", function()
   vim.cmd("runtime plugin/terminals.lua")
   local commands = vim.api.nvim_get_commands({ builtin = false })
-  for _, name in ipairs({ "TermNew", "TermClose", "TermPrev", "TermNext", "TermToggle", "TermSend" }) do
+  for _, name in ipairs({ "TermNew", "TermClose", "TermPrev", "TermNext", "TermToggle", "TermMove", "TermSend" }) do
     truthy(commands[name], name .. " should be registered")
   end
   same(commands.TermNew.nargs, "*", "TermNew should accept optional arguments")
   same(commands.TermNew.complete, "shellcmd", "TermNew should use shell command completion")
+  same(commands.TermMove.nargs, "1", "TermMove should require exactly one position")
   same(commands.TermSend.nargs, "?", "TermSend should accept an optional position")
   same(commands.TermSend.range, ".", "TermSend should accept a Visual range")
   for _, name in ipairs({ "TermClose", "TermPrev", "TermNext", "TermToggle" }) do
     same(commands[name].nargs, "0", name .. " should reject arguments")
   end
-  same(
-    vim.fn.getcompletion("TermSend ", "cmdline"),
-    { "float", "top", "bottom", "left", "right" },
-    "TermSend should complete supported positions"
-  )
-  same(vim.fn.getcompletion("TermSend r", "cmdline"), { "right" }, "TermSend should filter completion by prefix")
-  same(vim.fn.getcompletion("TermSend x", "cmdline"), {}, "TermSend should reject unknown completion prefixes")
+  for _, name in ipairs({ "TermMove", "TermSend" }) do
+    same(
+      vim.fn.getcompletion(name .. " ", "cmdline"),
+      { "float", "top", "bottom", "left", "right" },
+      name .. " should complete supported positions"
+    )
+    same(vim.fn.getcompletion(name .. " r", "cmdline"), { "right" }, name .. " should filter completion by prefix")
+    same(vim.fn.getcompletion(name .. " x", "cmdline"), {}, name .. " should reject unknown completion prefixes")
+  end
 
   local command_calls = {}
   local command_methods = { "close", "prev", "next", "toggle" }
@@ -219,6 +222,15 @@ test("registers commands and forwards command forms", function()
     { method = "next", argc = 0 },
     { method = "toggle", argc = 0 },
   }, "argument-free commands should dispatch to their matching Lua APIs")
+
+  local move_calls = {}
+  local move = terminals.move
+  terminals.move = function(options)
+    move_calls[#move_calls + 1] = options
+  end
+  vim.cmd("TermMove right")
+  terminals.move = move
+  same(move_calls, { { position = "right" } }, "TermMove should forward its required position")
 
   local send_calls = {}
   local send = terminals.send
@@ -1100,6 +1112,222 @@ test("resolves default, configured, per-call, and inherited positions", function
   vim.api.nvim_set_current_win(main_win)
   local configured_left = terminals.new("configured-left")
   same(configured_left.opts.win.position, "left", "all documented edge positions should reach Snacks")
+end)
+
+test("moves one terminal without replacing its object or process", function()
+  local dir = directory("move-one")
+  cd(dir)
+  terminals.setup()
+
+  local terminal = terminals.new({ "long-running", "job" }, {
+    position = "left",
+    title = "Worker",
+    env = { MOVE_TEST = "yes" },
+  })
+  vim.api.nvim_win_set_width(terminal.win, 18)
+  local buffer = terminal.buf
+  local opened = #stub.opened
+  local close_count = terminal.close_count
+
+  same(terminals.move({ position = "right" }), terminal, "move should return the same Snacks object")
+  same(#stub.opened, opened, "move should not open another Snacks terminal")
+  same(terminal.buf, buffer, "move should retain the terminal buffer")
+  truthy(terminal.process_running, "move should retain the running process")
+  same(terminal.close_count, close_count, "move should not close the terminal")
+  same(terminal.opts.cwd, dir, "move should retain the process cwd")
+  same(terminal.opts.env, { MOVE_TEST = "yes" }, "move should retain the process environment")
+  same(terminal.opts.win.position, "right", "move should reconfigure the persistent window position")
+  same(terminals.current(), {
+    cwd = dir,
+    cmd = { "long-running", "job" },
+    title = "Worker",
+    position = "right",
+  }, "current metadata should expose the effective moved position")
+  current_is(terminal)
+  same(terminals.next({ position = "left" }), nil, "moving the only entry should delete its empty source group")
+
+  same(terminals.move({ position = "left" }), terminal, "a second move should reuse the same object")
+  same(vim.api.nvim_win_get_width(terminal.win), 18, "moving back should restore the source side's retained width")
+  same(#stub.opened, opened, "moving back should still avoid terminal creation")
+  current_is(terminal)
+
+  local hide_count = terminal.hide_count
+  local show_count = terminal.show_count
+  local focus_count = terminal.focus_count
+  same(terminals.move({ position = "left" }), terminal, "moving to the current position should return the object")
+  same(terminal.hide_count, hide_count, "a same-position move should not hide the terminal")
+  same(terminal.show_count, show_count, "a same-position move should not show the terminal")
+  same(terminal.focus_count, focus_count, "a same-position move should not refocus the terminal")
+
+  local notifications = #stub.notifications
+  same(terminals.move(), nil, "a missing Lua position should fail")
+  same(stub.notifications[#stub.notifications], "Terminal position is required.", "a missing position should notify")
+  same(terminals.move({}), nil, "an omitted position field should fail")
+  same(terminals.move({ position = "diagonal" }), nil, "an invalid position should fail")
+  same(stub.notifications[#stub.notifications], "Invalid terminal position: diagonal.", "an invalid position should notify")
+  same(#stub.notifications, notifications + 3, "each invalid Lua target should use the error notification path")
+  current_is(terminal)
+
+  vim.api.nvim_set_current_win(main_win)
+  notifications = #stub.notifications
+  same(terminals.move({ position = "top" }), nil, "a valid move outside a managed terminal should be a no-op")
+  same(#stub.notifications, notifications, "an outside no-op should not notify")
+  same(terminal.opts.win.position, "left", "an outside no-op should leave the managed terminal unchanged")
+end)
+
+test("inserts moved terminals by original creation order and activates them", function()
+  cd(directory("move-order"))
+  terminals.setup()
+
+  local older = terminals.new("older", { position = "top" })
+  local moved = terminals.new("moved", { position = "left" })
+  local newer = terminals.new("newer", { position = "top" })
+  same(terminals.prev({ position = "left" }), moved, "the source terminal should be focused before moving")
+  truthy(newer:win_valid(), "the prior destination selection should be visible before moving")
+  local opened = #stub.opened
+
+  same(terminals.move({ position = "top" }), moved, "move should return the inserted terminal")
+  same(#stub.opened, opened, "insertion should not create another terminal")
+  falsy(newer:win_valid(), "move should hide the previously visible destination terminal")
+  current_is(moved)
+  same(
+    eval_winbar(moved, 32).str,
+    " older   moved   newer " .. string.rep(" ", 9),
+    "the destination winbar should preserve original creation order"
+  )
+  same(terminals.next(), newer, "cycling should continue after the moved entry in creation order")
+  same(terminals.next(), older, "destination cycling should wrap in original creation order")
+  same(terminals.next(), moved, "the moved terminal should remain in the destination carousel")
+end)
+
+test("selects and displays source fallbacks according to their position", function()
+  cd(directory("move-edge-predecessor"))
+  terminals.setup()
+
+  local predecessor = terminals.new("predecessor", { position = "left" })
+  local moved = terminals.new("moved", { position = "left" })
+  local successor = terminals.new("successor", { position = "left" })
+  same(terminals.prev(), moved, "the middle source entry should be selected")
+  local predecessor_focuses = predecessor.focus_count
+  same(terminals.move({ position = "bottom" }), moved, "the middle entry should move to the destination")
+  truthy(predecessor:win_valid(), "a vacated edge should show the immediate predecessor")
+  falsy(successor:win_valid(), "a non-adjacent source terminal should remain hidden")
+  same(predecessor.focus_count, predecessor_focuses, "the edge fallback should not receive explicit focus")
+  current_is(moved)
+  same(terminals.next({ position = "left" }), successor, "the predecessor should be the source group's active fallback")
+
+  vim.api.nvim_set_current_win(main_win)
+  cd(directory("move-edge-successor"))
+  local first = terminals.new("first", { position = "top" })
+  local next_entry = terminals.new("next", { position = "top" })
+  same(terminals.prev(), first, "the first source entry should be selected")
+  same(terminals.move({ position = "right" }), first, "the first entry should move")
+  truthy(next_entry:win_valid(), "a source entry without a predecessor should show its successor")
+  current_is(first)
+
+  vim.api.nvim_set_current_win(main_win)
+  cd(directory("move-float-fallback"))
+  local float_fallback = terminals.new("float-fallback", { position = "float" })
+  local float_moved = terminals.new("float-moved", { position = "float" })
+  same(terminals.move({ position = "left" }), float_moved, "the selected float should move to an edge")
+  falsy(float_fallback:win_valid(), "a vacated float fallback should remain hidden")
+  current_is(float_moved)
+end)
+
+test("uses destination side width and moved lifecycle scope", function()
+  local dir = directory("move-width-lifecycle")
+  cd(dir)
+  terminals.setup()
+
+  local destination_fallback = terminals.new("destination-fallback", { position = "right" })
+  vim.api.nvim_win_set_width(destination_fallback.win, 23)
+  local source_fallback = terminals.new("source-fallback", { position = "left" })
+  local moved = terminals.new("moved", { position = "left" })
+  local buffer = moved.buf
+
+  same(terminals.move({ position = "right" }), moved, "the terminal should move into the populated side")
+  same(vim.api.nvim_win_get_width(moved.win), 23, "move should apply the destination side's remembered width")
+  vim.api.nvim_win_set_width(moved.win, 12)
+  moved.opts.win.on_win({
+    opts = moved.opts.win,
+    win = moved.win,
+    win_valid = function(self)
+      return vim.api.nvim_win_is_valid(self.win)
+    end,
+  })
+  same(
+    vim.api.nvim_win_get_width(moved.win),
+    23,
+    "the creation-time side callback should consult the moved destination position"
+  )
+  truthy(source_fallback:win_valid(), "the source edge fallback should be visible")
+  falsy(destination_fallback:win_valid(), "the prior destination terminal should be hidden")
+  same(terminals.current().position, "right", "metadata should follow the destination scope")
+
+  same(terminals.toggle(), moved, "implicit toggle should use the moved position")
+  falsy(moved:win_valid(), "toggle should hide the moved terminal")
+  same(terminals.toggle({ position = "right" }), moved, "targeted toggle should restore the moved terminal")
+  same(moved.buf, buffer, "hide and restore after a move should retain the original buffer")
+
+  same(terminals.close(), moved, "close should remove the moved destination entry")
+  falsy(moved:buf_valid(), "close should destroy the moved terminal only when requested")
+  current_is(destination_fallback)
+  truthy(source_fallback:win_valid(), "closing after a move should leave the unrelated source position visible")
+
+  local exiting = terminals.new("exiting", { position = "float" })
+  same(terminals.move({ position = "right" }), exiting, "a float should move into the destination lifecycle group")
+  exiting:exit(0)
+  eventually_invalid(exiting, "a moved successful terminal should finalize normally")
+  eventually_current_is(destination_fallback)
+
+  local wiped = terminals.new("wiped", { position = "float" })
+  same(terminals.move({ position = "right" }), wiped, "a terminal to wipe should join the destination group")
+  vim.api.nvim_buf_delete(wiped.buf, { force = true })
+  eventually_current_is(destination_fallback)
+  same(terminals.current().position, "right", "wipe fallback should use the moved lifecycle position")
+end)
+
+test("keeps a moved terminal's group directory and owner tab isolated", function()
+  local group_dir = directory("move-isolation-group")
+  local process_dir = directory("move-isolation-process")
+  cd(group_dir)
+  terminals.setup()
+
+  local owner_tab = vim.api.nvim_get_current_tabpage()
+  local moved = terminals.new("grouped", {
+    cwd = process_dir,
+    group = true,
+    position = "left",
+  })
+
+  vim.cmd("tabnew")
+  local other_tab = vim.api.nvim_get_current_tabpage()
+  local other = terminals.new("other-tab", { position = "top" })
+  local other_win = other.win
+
+  vim.api.nvim_set_current_tabpage(owner_tab)
+  vim.api.nvim_set_current_win(moved.win)
+  same(terminals.move({ position = "top" }), moved, "the grouped terminal should move in its owner tab")
+  same(vim.api.nvim_win_get_tabpage(moved.win), owner_tab, "move should retain the terminal's owner tab")
+  same(moved.opts.cwd, process_dir, "move should retain the terminal's process cwd")
+  same(terminals.current(), {
+    cwd = process_dir,
+    cmd = "grouped",
+    title = "grouped",
+    position = "top",
+  }, "move should change only the grouped terminal's effective position metadata")
+  same(other.win, other_win, "moving in one tab should not replace another tab's window")
+  truthy(other:win_valid(), "the same destination position in another tab should remain visible")
+  same(vim.api.nvim_win_get_tabpage(other.win), other_tab, "the unrelated terminal should retain its owner tab")
+
+  local plain = terminals.new("plain")
+  same(plain.opts.cwd, group_dir, "plain new() after a move should still inherit the stored group directory")
+  same(plain.opts.win.position, "top", "plain new() should inherit the moved effective position")
+  same(terminals.prev(), moved, "the moved terminal should remain in its original directory group")
+
+  vim.api.nvim_set_current_tabpage(other_tab)
+  vim.cmd("tabclose")
+  vim.api.nvim_set_current_tabpage(owner_tab)
 end)
 
 test("isolates navigation, visibility, winbars, and fallback by position", function()

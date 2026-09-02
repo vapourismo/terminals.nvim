@@ -24,6 +24,20 @@ terminal_command("TermToggle", "toggle", "Toggle the selected terminal")
 
 local positions = { "float", "top", "bottom", "left", "right" }
 
+local function complete_position(arg_lead)
+  return vim.tbl_filter(function(position)
+    return position:sub(1, #arg_lead) == arg_lead
+  end, positions)
+end
+
+vim.api.nvim_create_user_command("TermMove", function(options)
+  require("terminals").move({ position = options.args })
+end, {
+  nargs = 1,
+  complete = complete_position,
+  desc = "Move the focused managed terminal to another position",
+})
+
 vim.api.nvim_create_user_command("TermSend", function(options)
   require("terminals").send({
     position = options.args ~= "" and options.args or nil,
@@ -32,10 +46,6 @@ vim.api.nvim_create_user_command("TermSend", function(options)
 end, {
   nargs = "?",
   range = true,
-  complete = function(arg_lead)
-    return vim.tbl_filter(function(position)
-      return position:sub(1, #arg_lead) == arg_lead
-    end, positions)
-  end,
+  complete = complete_position,
   desc = "Insert the Visual selection location into a managed terminal",
 })

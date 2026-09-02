@@ -15,11 +15,13 @@ INTRODUCTION                                        *terminals-introduction*
 
 terminals.nvim manages the persistent window objects returned by Snacks
 Terminal. Terminals are ordered by creation time and selected circularly.
-Every terminal belongs permanently to the tabpage where it was created. Each
-owner tabpage, normalized group directory, and window position combination has
-an independent terminal group and active selection. A terminal's group
-directory normally matches its process working directory, but new() may keep
-the current group while spawning a process elsewhere.
+Every terminal belongs permanently to the tabpage and normalized group
+directory where it was created. Effective window position completes the group
+scope, and each `(tabpage, group directory, position)` group has an independent
+creation-ordered carousel and active selection. move() can change a terminal's
+position group without changing its owner or group directory. A terminal's
+group directory normally matches its process working directory, but new() may
+keep the current group while spawning a process elsewhere.
 
 ==============================================================================
 REQUIREMENTS                                        *terminals-requirements*
@@ -50,8 +52,9 @@ Setup is optional. The defaults are: >lua
 The top-level `position` setting may be "float", "top", "bottom", "left", or
 "right". Snacks' buffer-replacing "current" position is not part of the
 supported contract. Configuration affects terminals created after setup;
-existing terminal objects retain their resolved position. A per-call position
-wins over a focused managed terminal's position, which wins over the
+changing setup does not reposition existing terminal objects. The move() API
+can explicitly change an existing terminal's effective position. A per-call
+position wins over a focused managed terminal's position, which wins over the
 configured default.
 
 The former `win` configuration field has been removed. This is a breaking API
@@ -93,6 +96,18 @@ COMMANDS                                                *terminals-commands*
 :TermClose
     Destroy the focused managed terminal. Do nothing when the current window
     is not a managed terminal.
+
+                                                     *:TermMove* *TermMove*
+:TermMove {position}
+    Move the focused managed terminal to another position group without
+    restarting it. {position} is required and may be "float", "top",
+    "bottom", "left", or "right". Position completion is provided. A valid
+    command outside a focused managed terminal does nothing. For example: >vim
+
+        :TermMove right
+<
+    No default key mapping is installed. See |terminals.move()| for ordering,
+    fallback, return, and lifecycle behavior.
 
                                                        *:TermPrev* *TermPrev*
 :TermPrev
@@ -154,7 +169,8 @@ current()                                       *terminals.current()*
     label used before winbar escaping: explicit non-nil {opts.title}, including
     an empty string, otherwise a command string, an argv list joined with
     spaces, or "terminal" when no command was supplied. `position` is the
-    retained "float", "top", "bottom", "left", or "right" position.
+    current effective "float", "top", "bottom", "left", or "right"
+    position, including a position changed by move().
 
     A selected or hidden terminal does not qualify. Neither does a visible but
     unfocused edge terminal, editor window, or unmanaged Neovim terminal. This
@@ -202,10 +218,10 @@ new({cmd}, {opts})                                   *terminals.new()*
 
     {opts.position} may be "float", "top", "bottom", "left", or "right".
     Without it, new() inherits a focused managed terminal's position, or uses
-    setup's `position` outside one. The resolved position is stored at
-    creation and is unaffected by later setup calls. :TermNew retains its
-    command-only syntax and has no custom directory, group, position, or
-    environment syntax; use this Lua API instead.
+    setup's `position` outside one. The resolved creation position is
+    unaffected by later setup calls, but may be explicitly changed by move().
+    :TermNew retains its command-only syntax and has no custom directory,
+    group, position, or environment syntax; use this Lua API instead.
 
     A target group matching the captured applicable group opens in the
     foreground, replaces a visible terminal only at the target position, and
@@ -224,6 +240,32 @@ new({cmd}, {opts})                                   *terminals.new()*
 close()                                            *terminals.close()*
     Destroy the focused managed terminal and return its Snacks object. Returns
     nil outside a managed terminal.
+
+move({opts})                                        *terminals.move()*
+    Move the focused managed terminal to {opts.position} and return the same
+    Snacks terminal object. {opts.position} is required and may be "float",
+    "top", "bottom", "left", or "right": >lua
+
+        local terminal = require("terminals").move({ position = "right" })
+<
+    A move preserves the owner tab, group directory, process cwd, buffer and
+    job, command, title, exit status, attention, and lifecycle state. It never
+    restarts the process, opens a replacement terminal, or replaces the Snacks
+    object. Moving to the current position is side-effect-free: the terminal
+    is not hidden, reordered, or refocused.
+
+    The moved terminal joins the destination carousel according to its
+    original creation order and becomes active there. A visible destination
+    terminal is hidden but remains alive. The source group selects the moved
+    terminal's immediate predecessor, or its immediate successor when no
+    predecessor exists. An edge-position fallback is shown without stealing
+    focus; a float fallback remains hidden. An empty source group is deleted.
+    Other positions, group directories, and tabs are unchanged. Source-side
+    width is retained, and a remembered destination-side width is applied.
+
+    Return nil and notify through Snacks when {opts.position} is missing or
+    invalid. A valid call outside a focused managed terminal returns nil
+    without notifying, matching close().
 
 prev({opts})                                        *terminals.prev()*
 next({opts})                                        *terminals.next()*
@@ -307,13 +349,27 @@ the foreground, and replaces the visible terminal at that position. Selecting
 or toggling a terminal replaces visibility only within its owner tab and
 target position.
 
+TermMove and move() change only a focused terminal's position-group membership
+and effective window position. Owner tabpage, group directory, process cwd,
+buffer/job, command, title, exit status, lifecycle state, and attention are
+retained. The same persistent Snacks object and process are reused. Destination
+ordering uses original creation time rather than move time, and the moved entry
+becomes active. The prior visible destination entry is hidden. In the source,
+the immediate predecessor becomes active, or the immediate successor if there
+is no predecessor. Vacated edge groups show that fallback without taking focus
+from the moved terminal; vacated float groups keep it hidden. Empty source
+groups are deleted. Unrelated positions, directories, and tabs are untouched.
+Live source-side width is retained and remembered destination-side width is
+applied. A same-position move changes nothing.
+
 Leaving a managed float hides only that window. Switching tabs from a focused
 float therefore hides it; returning to its owner tab and toggling restores the
 same Snacks object. Edge-positioned terminals stay visible across focus and
 tab changes. Hiding always retains the buffer and terminal process.
 
 Every managed terminal has a left-aligned winbar listing its exact owner-tab,
-group directory, and position group's terminals in creation order. A non-nil
+group directory, and effective position group's terminals in original
+creation order, including after moves. A non-nil
 {opts.title}, including an empty string, is authoritative for that terminal's
 lifetime. Otherwise, the title comes from the terminal's creation command.
 Shell strings
