@@ -73,8 +73,8 @@ both Normal and Terminal modes:
 | --- | --- | --- |
 | `term_new` | `<D-n>` | Create a terminal with `require("terminals").new()`. |
 | `term_close` | `<D-w>` | Close the focused managed terminal. |
-| `term_prev` | `<D-{>` | Select the previous managed terminal. |
-| `term_next` | `<D-}>` | Select the next managed terminal. |
+| `term_prev` | `<D-S-[>` | Select the previous managed terminal. |
+| `term_next` | `<D-S-]>` | Select the next managed terminal. |
 
 These mappings cannot be replaced or disabled through plugin configuration.
 The manager also disables the Snacks Normal-mode `q` mapping, disables folding

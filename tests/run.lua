@@ -2613,8 +2613,8 @@ test("provides terminal-scoped action mappings whose callbacks manage terminals"
   local expected = {
     term_new = { "<D-n>", "New terminal" },
     term_close = { "<D-w>", "Close terminal" },
-    term_prev = { "<D-{>", "Previous terminal" },
-    term_next = { "<D-}>", "Next terminal" },
+    term_prev = { "<D-S-[>", "Previous terminal" },
+    term_next = { "<D-S-]>", "Next terminal" },
   }
   for name, values in pairs(expected) do
     local mapping = keys[name]

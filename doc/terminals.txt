@@ -71,8 +71,8 @@ and Terminal modes:
     NAME          KEY       ACTION
     term_new      <D-n>     require("terminals").new()
     term_close    <D-w>     require("terminals").close()
-    term_prev     <D-{>     require("terminals").prev()
-    term_next     <D-}>     require("terminals").next()
+    term_prev     <D-S-[>   require("terminals").prev()
+    term_next     <D-S-]>   require("terminals").next()
 
 These mappings cannot be replaced or disabled through plugin configuration.
 The manager also disables the Snacks Normal-mode q mapping, disables folding

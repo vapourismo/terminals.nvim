@@ -680,8 +680,8 @@ local function terminal_action_keys()
   return {
     term_new = terminal_action("<D-n>", "new", "New terminal"),
     term_close = terminal_action("<D-w>", "close", "Close terminal"),
-    term_prev = terminal_action("<D-{>", "prev", "Previous terminal"),
-    term_next = terminal_action("<D-}>", "next", "Next terminal"),
+    term_prev = terminal_action("<D-S-[>", "prev", "Previous terminal"),
+    term_next = terminal_action("<D-S-]>", "next", "Next terminal"),
   }
 end
 
